@@ -10,9 +10,14 @@ import {
   SolidColorConversion,
   ErrorMessage,
   SettingsChangedMessage,
+  ExportHtmlFilesResponseMessage,
   Warning,
+  SelectedNode,
 } from "types";
-import { postUISettingsChangingMessage } from "./messaging";
+import {
+  postUIExportHtmlFilesMessage,
+  postUISettingsChangingMessage,
+} from "./messaging";
 import copy from "copy-to-clipboard";
 
 interface AppState {
@@ -24,6 +29,11 @@ interface AppState {
   colors: SolidColorConversion[];
   gradients: LinearGradientConversion[];
   warnings: Warning[];
+  selectedNodes: SelectedNode[];
+  exportProgress?: {
+    current: number;
+    total: number;
+  };
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
@@ -49,6 +59,7 @@ export default function App() {
     colors: [],
     gradients: [],
     warnings: [],
+    selectedNodes: [],
   });
 
   const rootStyles = getComputedStyle(document.documentElement);
@@ -77,6 +88,7 @@ export default function App() {
             ...conversionMessage,
             selectedFramework: conversionMessage.settings.framework,
             isLoading: false,
+            selectedNodes: conversionMessage.selectedNodes || [],
           }));
           break;
 
@@ -117,6 +129,38 @@ export default function App() {
         case "selection-json":
           const json = event.data.pluginMessage.data;
           copy(JSON.stringify(json, null, 2));
+          break;
+
+        case "export-html-files-start":
+          console.log("[export] Starting export of", event.data.pluginMessage.total, "files");
+          setState((prevState) => ({
+            ...prevState,
+            exportProgress: { current: 0, total: event.data.pluginMessage.total },
+          }));
+          break;
+
+        case "export-html-files-progress":
+          console.log("[export] Progress:", event.data.pluginMessage.processed, "/", event.data.pluginMessage.total);
+          setState((prevState) => ({
+            ...prevState,
+            exportProgress: {
+              current: event.data.pluginMessage.processed,
+              total: event.data.pluginMessage.total,
+            },
+          }));
+          break;
+
+        case "export-html-files-response":
+          const exportMessage = untypedMessage as ExportHtmlFilesResponseMessage;
+          downloadHtmlFiles(exportMessage.files);
+          // 清除进度显示
+          setTimeout(() => {
+            setState((prevState) => ({
+              ...prevState,
+              exportProgress: undefined,
+            }));
+          }, 500);
+          break;
 
         default:
           break;
@@ -131,6 +175,49 @@ export default function App() {
   useEffect(() => {
     parent.postMessage({ pluginMessage: { type: "ui-ready" } }, "*");
   }, []);
+
+  const downloadHtmlFiles = async (
+    files: Array<{ filename: string; content: string }>,
+  ) => {
+    try {
+      console.log("[download] Starting download for", files.length, "files");
+      
+      // 单文件：直接下载，无需ZIP压缩 - 更快
+      if (files.length === 1) {
+        console.log("[download] Single file - direct download without ZIP");
+        const { filename, content } = files[0];
+        const blob = new Blob([content], { type: "text/html;charset=utf-8" });
+        triggerDownload(blob, filename);
+        return;
+      }
+
+      // 多文件：使用ZIP压缩（动态导入JSZip - 只在需要时加载）
+      console.log("[download] Multiple files - lazy loading JSZip");
+      const JSZip = (await import("jszip")).default;
+      
+      const zip = new JSZip();
+      files.forEach((file) => {
+        zip.file(file.filename, file.content);
+      });
+
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      triggerDownload(blob, "figma-html-export.zip");
+    } catch (error) {
+      console.error("Failed to download files:", error);
+    }
+  };
+
+  // 高效下载触发函数 - 最小化DOM操作
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    // 使用click()而不是appendChild + click + removeChild - 更高效
+    link.click();
+    // 延迟释放URL - 确保下载完成
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
 
   const handleFrameworkChange = (updatedFramework: Framework) => {
     if (updatedFramework !== state.selectedFramework) {
@@ -155,6 +242,10 @@ export default function App() {
     }
   };
 
+  const handleExportHtmlFiles = () => {
+    postUIExportHtmlFilesMessage({ targetOrigin: "*" });
+  };
+
   const darkMode = isDarkFigmaBackground(figmaColorBgValue);
 
   return (
@@ -163,15 +254,9 @@ export default function App() {
     >
       <PluginUI
         isLoading={state.isLoading}
-        code={state.code}
-        warnings={state.warnings}
-        selectedFramework={state.selectedFramework}
-        setSelectedFramework={handleFrameworkChange}
-        onPreferenceChanged={handlePreferencesChange}
-        htmlPreview={state.htmlPreview}
-        settings={state.settings}
-        colors={state.colors}
-        gradients={state.gradients}
+        selectedNodes={state.selectedNodes}
+        onExportHTMLFiles={handleExportHtmlFiles}
+        exportProgress={state.exportProgress}
       />
     </div>
   );

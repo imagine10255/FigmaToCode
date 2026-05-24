@@ -41,6 +41,12 @@ export interface PluginSettings
   responsiveRoot: boolean;
 }
 // Messaging
+export interface SelectedNode {
+  id: string;
+  name: string;
+  type: string;
+}
+
 export interface ConversionData {
   code: string;
   settings: PluginSettings;
@@ -48,6 +54,7 @@ export interface ConversionData {
   colors: SolidColorConversion[];
   gradients: LinearGradientConversion[];
   warnings: Warning[];
+  selectedNodes?: SelectedNode[];
 }
 
 export type Warning = string;
@@ -72,6 +79,16 @@ export type SettingWillChangeMessage<T> = Message & {
 export type SettingsChangedMessage = Message & {
   type: "pluginSettingsChanged";
   settings: PluginSettings;
+};
+export type ExportHtmlFilesMessage = Message & {
+  type: "export-html-files";
+};
+export type ExportHtmlFilesResponseMessage = Message & {
+  type: "export-html-files-response";
+  files: Array<{
+    filename: string;
+    content: string;
+  }>;
 };
 export type ErrorMessage = Message & {
   type: "error";

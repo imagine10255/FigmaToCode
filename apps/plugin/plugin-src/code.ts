@@ -1,4 +1,3 @@
-import { tailwindCodeGenTextStyles } from "./../../../packages/backend/src/tailwind/tailwindMain";
 import {
   run,
   flutterMain,
@@ -7,13 +6,15 @@ import {
   htmlMain,
   composeMain,
   postSettingsChanged,
+  tailwindCodeGenTextStyles,
+  flutterCodeGenTextStyles,
+  htmlCodeGenTextStyles,
+  swiftUICodeGenTextStyles,
+  composeCodeGenTextStyles,
 } from "backend";
 import { nodesToJSON } from "backend/src/altNodes/jsonNodeConversion";
+import { oldConvertNodesToAltNodes } from "backend/src/altNodes/oldAltConversion";
 import { retrieveGenericSolidUIColors } from "backend/src/common/retrieveUI/retrieveColors";
-import { flutterCodeGenTextStyles } from "backend/src/flutter/flutterMain";
-import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
-import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
-import { composeCodeGenTextStyles } from "backend/src/compose/composeMain";
 import { PluginSettings, SettingWillChangeMessage } from "types";
 
 let userPluginSettings: PluginSettings;
@@ -238,6 +239,108 @@ const standardMode = async () => {
         type: "selection-json",
         data: nodeJson,
       });
+    } else if (msg.type === "export-html-files") {
+      console.log("[DEBUG] export-html-files message received");
+      const selectedNodes = figma.currentPage.selection;
+
+      if (selectedNodes.length === 0) {
+        figma.ui.postMessage({
+          type: "error",
+          error: "No nodes selected for HTML export.",
+        });
+        return;
+      }
+
+      const sanitizeFileName = (name: string) =>
+        name
+          .replace(/[<>:\"/\\|?*\x00-\x1F]/g, "")
+          .trim()
+          .replace(/\s+/g, "_") || "frame";
+
+      const escapeHtml = (text: string) =>
+        text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+
+      const buildHtmlFile = (
+        title: string,
+        htmlOutput: { html: string; css?: string },
+      ) => {
+        const cssBlock = htmlOutput.css
+          ? `<style>\n${htmlOutput.css}\n</style>\n`
+          : "";
+        return `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>${escapeHtml(
+          title,
+        )}</title>\n${cssBlock}</head>\n<body>\n${htmlOutput.html}\n</body>\n</html>`;
+      };
+
+      // 发送开始消息
+      figma.ui.postMessage({
+        type: "export-html-files-start",
+        total: selectedNodes.length,
+      });
+
+      const fileCounts: Record<string, number> = {};
+      
+      // 使用并发限制处理多个Frame（最多3个并发）- 防止内存溢出
+      const CONCURRENT_LIMIT = 3;
+      const files: Array<{ filename: string; content: string }> = [];
+      
+      for (let i = 0; i < selectedNodes.length; i += CONCURRENT_LIMIT) {
+        const batch = selectedNodes.slice(i, i + CONCURRENT_LIMIT);
+        
+        const batchResults = await Promise.all(
+          batch.map(async (node) => {
+            try {
+              const convertedSelection = (userPluginSettings.useOldPluginVersion2025
+                ? oldConvertNodesToAltNodes([node], null)
+                : await nodesToJSON([node], userPluginSettings)) as SceneNode[];
+
+              const htmlOutput = await htmlMain(convertedSelection, {
+                ...userPluginSettings,
+                htmlGenerationMode: "html",
+              });
+
+              const safeBaseName = sanitizeFileName(node.name || node.type || "frame");
+              const fileIndex = (fileCounts[safeBaseName] ?? 0) + 1;
+              fileCounts[safeBaseName] = fileIndex;
+              const filename =
+                fileIndex === 1
+                  ? `${safeBaseName}.html`
+                  : `${safeBaseName}_${fileIndex}.html`;
+
+              return {
+                filename,
+                content: buildHtmlFile(node.name || node.type || "Frame", htmlOutput),
+              };
+            } catch (error) {
+              console.error(`Error processing node ${node.name}:`, error);
+              // 返回空文件而不是崩溃
+              return {
+                filename: `${sanitizeFileName(node.name || node.type || "frame")}_error.txt`,
+                content: `Error processing this frame: ${error instanceof Error ? error.message : String(error)}`,
+              };
+            }
+          })
+        );
+        
+        files.push(...batchResults);
+        
+        // 发送进度更新
+        figma.ui.postMessage({
+          type: "export-html-files-progress",
+          processed: Math.min(i + CONCURRENT_LIMIT, selectedNodes.length),
+          total: selectedNodes.length,
+        });
+      }
+
+      figma.ui.postMessage({
+        type: "export-html-files-response",
+        files,
+      });
     }
   };
 };
@@ -254,7 +357,7 @@ const codegenMode = async () => {
         `[DEBUG] codegen.generate - Language: ${language}, Node: id=${node.id}, type=${node.type}`,
       );
 
-      const convertedSelection = await nodesToJSON([node], userPluginSettings);
+      const convertedSelection = (await nodesToJSON([node], userPluginSettings)) as unknown as SceneNode[];
       console.log(
         "[DEBUG] codegen.generate - Converted selection count:",
         convertedSelection.length,

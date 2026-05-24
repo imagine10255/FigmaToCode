@@ -170,5 +170,10 @@ export const run = async (settings: PluginSettings) => {
     gradients,
     settings,
     warnings: [...warnings],
+    selectedNodes: selection.map((node) => ({
+      id: node.id,
+      name: node.name,
+      type: node.type,
+    })),
   });
 };

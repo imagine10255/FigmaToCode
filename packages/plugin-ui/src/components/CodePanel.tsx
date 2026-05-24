@@ -1,5 +1,4 @@
 import {
-  Framework,
   LocalCodegenPreferenceOptions,
   PluginSettings,
   SelectPreferenceOptions,
@@ -10,12 +9,10 @@ import { coldarkDark as theme } from "react-syntax-highlighter/dist/esm/styles/p
 import { CopyButton } from "./CopyButton";
 import EmptyState from "./EmptyState";
 import SettingsGroup from "./SettingsGroup";
-import FrameworkTabs from "./FrameworkTabs";
-import { TailwindSettings } from "./TailwindSettings";
+import { Button } from "./ui/button";
 
 interface CodePanelProps {
   code: string;
-  selectedFramework: Framework;
   settings: PluginSettings | null;
   preferenceOptions: LocalCodegenPreferenceOptions[];
   selectPreferenceOptions: SelectPreferenceOptions[];
@@ -23,6 +20,7 @@ interface CodePanelProps {
     key: keyof PluginSettings,
     value: PluginSettings[keyof PluginSettings],
   ) => void;
+  onExportHTMLFiles: () => void;
 }
 
 const CodePanel = (props: CodePanelProps) => {
@@ -33,9 +31,9 @@ const CodePanel = (props: CodePanelProps) => {
     code,
     preferenceOptions,
     selectPreferenceOptions,
-    selectedFramework,
     settings,
     onPreferenceChanged,
+    onExportHTMLFiles,
   } = props;
   const isCodeEmpty = code === "";
 
@@ -73,11 +71,7 @@ const CodePanel = (props: CodePanelProps) => {
   };
 
   // If the selected framework is Tailwind and a prefix is provided then transform the code.
-  const prefixedCode =
-    selectedFramework === "Tailwind" &&
-    settings?.customTailwindPrefix?.trim() !== ""
-      ? applyPrefixToClasses(code, settings?.customTailwindPrefix)
-      : code;
+  const prefixedCode = code;
 
   // Memoize the line count calculation to improve performance for large code blocks
   const lineCount = useMemo(
@@ -102,24 +96,17 @@ const CodePanel = (props: CodePanelProps) => {
     stylingPreferences,
     selectableSettingsFiltered,
   } = useMemo(() => {
-    // Get preferences for the current framework
     const frameworkPreferences = preferenceOptions.filter((preference) =>
-      preference.includedLanguages?.includes(selectedFramework),
+      preference.includedLanguages?.includes("HTML"),
     );
 
-    // Define preference grouping based on property names
     const essentialPropertyNames = ["jsx"];
     const stylingPropertyNames = [
-      "useTailwind4",
-      "roundTailwindValues",
-      "roundTailwindColors",
-      "useColorVariables",
       "showLayerNames",
       "embedImages",
       "embedVectors",
     ];
 
-    // Group preferences by category
     return {
       essentialPreferences: frameworkPreferences.filter((p) =>
         essentialPropertyNames.includes(p.propertyName),
@@ -128,85 +115,46 @@ const CodePanel = (props: CodePanelProps) => {
         stylingPropertyNames.includes(p.propertyName),
       ),
       selectableSettingsFiltered: selectPreferenceOptions.filter((p) =>
-        p.includedLanguages?.includes(selectedFramework),
+        p.includedLanguages?.includes("HTML"),
       ),
     };
-  }, [preferenceOptions, selectPreferenceOptions, selectedFramework]);
+  }, [preferenceOptions, selectPreferenceOptions]);
 
   const hasSettingsBeforeStyling =
     essentialPreferences.length > 0 || selectableSettingsFiltered.length > 0;
 
   return (
     <div className="w-full flex flex-col gap-2 mt-2">
-      <div className="flex items-center justify-between w-full">
+      <div className="flex items-center justify-between w-full gap-2">
         <p className="text-lg font-medium text-center text-foreground rounded-lg">
           Code
         </p>
-        {!isCodeEmpty && (
-          <CopyButton
-            value={prefixedCode}
-            onMouseEnter={handleButtonHover}
-            onMouseLeave={handleButtonLeave}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          {!isCodeEmpty && (
+            <Button variant="outline" size="sm" onClick={onExportHTMLFiles}>
+              Download HTML
+            </Button>
+          )}
+          {!isCodeEmpty && (
+            <CopyButton
+              value={prefixedCode}
+              onMouseEnter={handleButtonHover}
+              onMouseLeave={handleButtonLeave}
+            />
+          )}
+        </div>
       </div>
 
       {!isCodeEmpty && (
-        <div className="flex flex-col p-3 bg-card border rounded-lg text-sm">
+        <div className="flex flex-col p-3 bg-card border rounded-lg text-sm gap-2">
           {/* Essential settings always shown */}
           <SettingsGroup
-            title=""
-            settings={essentialPreferences}
+            title="Export Options"
+            settings={essentialPreferences.filter((p) => p.propertyName === "embedImages" || p.propertyName === "embedVectors")}
             alwaysExpanded={true}
             selectedSettings={settings}
             onPreferenceChanged={onPreferenceChanged}
           />
-
-          {/* Framework-specific options */}
-          {selectableSettingsFiltered.length > 0 && (
-            <div className="mb-2 flex flex-col gap-2 last:mb-0">
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                {selectedFramework} Options
-              </p>
-              {selectableSettingsFiltered.map((preference) => {
-                // Regular toggle buttons for other options
-                return (
-                  <FrameworkTabs
-                    options={preference.options}
-                    selectedValue={
-                      (settings?.[preference.propertyName] ??
-                        preference.options.find((option) => option.isDefault)
-                          ?.value ??
-                        "") as string
-                    }
-                    onChange={(value) => {
-                      onPreferenceChanged(preference.propertyName, value);
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          {/* Styling preferences with custom prefix for Tailwind */}
-          {(stylingPreferences.length > 0 ||
-            selectedFramework === "Tailwind") && (
-            <div className={hasSettingsBeforeStyling ? "mt-2" : undefined}>
-              <SettingsGroup
-                title="Styling Options"
-                settings={stylingPreferences}
-                selectedSettings={settings}
-                onPreferenceChanged={onPreferenceChanged}
-              >
-                {selectedFramework === "Tailwind" && (
-                  <TailwindSettings
-                    settings={settings}
-                    onPreferenceChanged={onPreferenceChanged}
-                  />
-                )}
-              </SettingsGroup>
-            </div>
-          )}
         </div>
       )}
 
@@ -231,18 +179,7 @@ const CodePanel = (props: CodePanelProps) => {
               </div>
             )}
             <SyntaxHighlighter
-              language={
-                selectedFramework === "HTML" &&
-                settings?.htmlGenerationMode === "styled-components"
-                  ? "jsx"
-                  : selectedFramework === "Flutter"
-                    ? "dart"
-                    : selectedFramework === "SwiftUI"
-                      ? "swift"
-                      : selectedFramework === "Compose"
-                        ? "kotlin"
-                        : "html"
-              }
+              language="html"
               style={theme}
               customStyle={{
                 fontSize: 12,

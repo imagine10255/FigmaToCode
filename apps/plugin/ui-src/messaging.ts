@@ -23,3 +23,12 @@ export const postUISettingsChangingMessage = <T>(
   };
   postUIMessage(message, options);
 };
+
+export const postUIExportHtmlFilesMessage = (
+  options?: WindowPostMessageOptions,
+) => {
+  const message: Message = {
+    type: "export-html-files",
+  };
+  postUIMessage(message, options);
+};

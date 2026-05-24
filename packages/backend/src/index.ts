@@ -1,7 +1,7 @@
-export { flutterMain } from "./flutter/flutterMain";
-export { htmlMain } from "./html/htmlMain";
-export { tailwindMain } from "./tailwind/tailwindMain";
-export { swiftuiMain } from "./swiftui/swiftuiMain";
-export { composeMain } from "./compose/composeMain";
+export { flutterMain, flutterCodeGenTextStyles } from "./flutter/flutterMain";
+export { htmlMain, htmlCodeGenTextStyles } from "./html/htmlMain";
+export { tailwindMain, tailwindCodeGenTextStyles } from "./tailwind/tailwindMain";
+export { swiftuiMain, swiftUICodeGenTextStyles } from "./swiftui/swiftuiMain";
+export { composeMain, composeCodeGenTextStyles } from "./compose/composeMain";
 export { run } from "./code";
 export * from "./messaging";

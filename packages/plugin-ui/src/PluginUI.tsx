@@ -1,224 +1,79 @@
-import copy from "copy-to-clipboard";
-import Preview from "./components/Preview";
-import GradientsPanel from "./components/GradientsPanel";
-import ColorsPanel from "./components/ColorsPanel";
-import CodePanel from "./components/CodePanel";
-import EmptyState from "./components/EmptyState";
-import About from "./components/About";
-import WarningsPanel from "./components/WarningsPanel";
-import {
-  Framework,
-  HTMLPreview,
-  LinearGradientConversion,
-  PluginSettings,
-  SolidColorConversion,
-  Warning,
-} from "types";
-import {
-  preferenceOptions,
-  selectPreferenceOptions,
-} from "./codegenPreferenceOptions";
-import Loading from "./components/Loading";
-import { useEffect, useState } from "react";
-import { InfoIcon } from "lucide-react";
 import React from "react";
 import { Button } from "./components/ui/button";
-import { ScrollArea } from "./components/ui/scroll-area";
-import { TooltipProvider } from "./components/ui/tooltip";
+import { SelectedNode } from "types";
 
 type PluginUIProps = {
-  code: string;
-  htmlPreview: HTMLPreview;
-  warnings: Warning[];
-  selectedFramework: Framework;
-  setSelectedFramework: (framework: Framework) => void;
-  settings: PluginSettings | null;
-  onPreferenceChanged: (
-    key: keyof PluginSettings,
-    value: PluginSettings[keyof PluginSettings],
-  ) => void;
-  colors: SolidColorConversion[];
-  gradients: LinearGradientConversion[];
   isLoading: boolean;
-};
-
-const frameworks: Framework[] = ["HTML", "Tailwind", "Flutter", "SwiftUI"];
-const LOADING_INDICATOR_DELAY_MS = 250;
-
-type FrameworkTabsProps = {
-  frameworks: Framework[];
-  selectedFramework: Framework;
-  setSelectedFramework: (framework: Framework) => void;
-  showAbout: boolean;
-  setShowAbout: (show: boolean) => void;
-};
-
-const FrameworkTabs = ({
-  frameworks,
-  selectedFramework,
-  setSelectedFramework,
-  showAbout,
-  setShowAbout,
-}: FrameworkTabsProps) => {
-  return (
-    <div className="grid grid-cols-4 sm:grid-cols-2 md:grid-cols-4 gap-1 grow">
-      {frameworks.map((tab) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          key={`tab ${tab}`}
-          className={`w-full h-8 rounded-md text-sm ${
-            selectedFramework === tab && !showAbout
-              ? "bg-primary text-primary-foreground shadow-xs hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary"
-              : "bg-muted text-foreground hover:bg-primary/90 hover:text-primary-foreground dark:hover:bg-primary/90"
-          }`}
-          onClick={() => {
-            setSelectedFramework(tab as Framework);
-            setShowAbout(false);
-          }}
-        >
-          {tab}
-        </Button>
-      ))}
-    </div>
-  );
+  selectedNodes: SelectedNode[];
+  onExportHTMLFiles: () => void;
+  exportProgress?: {
+    current: number;
+    total: number;
+  };
 };
 
 export const PluginUI = (props: PluginUIProps) => {
-  const [showAbout, setShowAbout] = useState(false);
-  const [showLoading, setShowLoading] = useState(false);
-  const [hasHandledInitialLoad, setHasHandledInitialLoad] = useState(false);
+  if (props.isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background text-foreground">
+        <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
+    );
+  }
 
-  const [previewExpanded, setPreviewExpanded] = useState(false);
-  const [previewViewMode, setPreviewViewMode] = useState<
-    "desktop" | "mobile" | "precision"
-  >("precision");
-  const [previewBgColor, setPreviewBgColor] = useState<"white" | "black">(
-    "white",
-  );
-
-  useEffect(() => {
-    if (!props.isLoading) {
-      setShowLoading(false);
-      setHasHandledInitialLoad(true);
-      return;
-    }
-
-    if (hasHandledInitialLoad) {
-      setShowLoading(true);
-      return;
-    }
-
-    // On plugin startup, the UI waits for a ready handshake before the first conversion.
-    // Delay the loader only for that initial pass to avoid a one-frame loading flash.
-    const timer = window.setTimeout(() => {
-      setShowLoading(true);
-    }, LOADING_INDICATOR_DELAY_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [props.isLoading]);
-
-  if (props.isLoading) return showLoading ? <Loading /> : null;
-
-  const isEmpty = props.code === "";
-  const warnings = props.warnings ?? [];
+  const progressPercent = props.exportProgress
+    ? Math.round((props.exportProgress.current / props.exportProgress.total) * 100)
+    : 0;
 
   return (
-    <TooltipProvider>
-      <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
-        <div className="px-2 py-1.5 dark:bg-card">
-          <div className="flex gap-1 bg-muted dark:bg-card rounded-lg p-0.5">
-            <FrameworkTabs
-              frameworks={frameworks}
-              selectedFramework={props.selectedFramework}
-              setSelectedFramework={props.setSelectedFramework}
-              showAbout={showAbout}
-              setShowAbout={setShowAbout}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`h-8 w-8 rounded-md ${
-                showAbout
-                  ? "bg-primary text-primary-foreground shadow-xs hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary"
-                  : "bg-muted text-foreground hover:bg-primary/90 hover:text-primary-foreground dark:hover:bg-primary/90"
-              }`}
-              onClick={() => {
-                setShowAbout(!showAbout);
-              }}
-              aria-label="About"
-            >
-              <InfoIcon size={16} />
-            </Button>
-          </div>
-        </div>
-        <div
-          style={{
-            height: 1,
-            width: "100%",
-            backgroundColor: "rgba(255,255,255,0.12)",
-          }}
-        ></div>
-        <ScrollArea className="min-h-0 flex-1 overflow-hidden">
-          {showAbout ? (
-            <About
-              useOldPluginVersion={props.settings?.useOldPluginVersion2025}
-              onPreferenceChanged={props.onPreferenceChanged}
-            />
-          ) : isEmpty ? (
-            <div className="flex min-h-full items-center justify-center">
-              <EmptyState />
-            </div>
-          ) : (
-            <div className="flex flex-col items-center px-4 pt-3 pb-2 gap-2 dark:bg-transparent">
-              {props.htmlPreview && (
-                <Preview
-                  htmlPreview={props.htmlPreview}
-                  expanded={previewExpanded}
-                  setExpanded={setPreviewExpanded}
-                  viewMode={previewViewMode}
-                  setViewMode={setPreviewViewMode}
-                  bgColor={previewBgColor}
-                  setBgColor={setPreviewBgColor}
-                />
-              )}
-
-              {warnings.length > 0 && <WarningsPanel warnings={warnings} />}
-
-              <CodePanel
-                code={props.code}
-                selectedFramework={props.selectedFramework}
-                preferenceOptions={preferenceOptions}
-                selectPreferenceOptions={selectPreferenceOptions}
-                settings={props.settings}
-                onPreferenceChanged={props.onPreferenceChanged}
-              />
-
-              {props.colors.length > 0 && (
-                <div className="mt-3 w-full">
-                  <ColorsPanel
-                    colors={props.colors}
-                    onColorClick={(value) => {
-                      copy(value);
-                    }}
-                  />
-                </div>
-              )}
-
-              {props.gradients.length > 0 && (
-                <div className="mt-3 w-full">
-                  <GradientsPanel
-                    gradients={props.gradients}
-                    onColorClick={(value) => {
-                      copy(value);
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </ScrollArea>
+    <div className="flex h-full flex-col bg-background text-foreground p-4">
+      <div className="mb-4">
+        <p className="text-base font-semibold">HTML Export</p>
+        <p className="text-xs text-muted-foreground">選取後按下載即可匯出多個 HTML。</p>
       </div>
-    </TooltipProvider>
+
+      <div className="mb-4 rounded-xl border border-muted bg-card p-3">
+        <p className="mb-2 text-sm font-medium">Selected Frames</p>
+        {props.selectedNodes.length > 0 ? (
+          <div className="space-y-2">
+            {props.selectedNodes.map((node) => (
+              <div
+                key={node.id}
+                className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-sm"
+              >
+                <span className="font-medium text-foreground">{node.name}</span>
+                <span className="text-xs text-muted-foreground">{node.type}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">請先在 Figma 中選取 Frame。</p>
+        )}
+      </div>
+
+      {props.exportProgress && (
+        <div className="mb-4 rounded-xl border border-muted bg-card p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Exporting...</p>
+            <p className="text-xs text-muted-foreground">{props.exportProgress.current}/{props.exportProgress.total}</p>
+          </div>
+          <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">{progressPercent}% complete</p>
+        </div>
+      )}
+
+      <Button
+        className="w-full"
+        onClick={props.onExportHTMLFiles}
+        disabled={props.exportProgress !== undefined}
+      >
+        {props.exportProgress ? "Exporting..." : "Download HTML"}
+      </Button>
+    </div>
   );
 };
