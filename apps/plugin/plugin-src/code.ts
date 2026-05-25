@@ -9,12 +9,13 @@ import {
   postSettingsChanged,
 } from "backend";
 import { nodesToJSON } from "backend/src/altNodes/jsonNodeConversion";
+import { oldConvertNodesToAltNodes } from "backend/src/altNodes/oldAltConversion";
 import { retrieveGenericSolidUIColors } from "backend/src/common/retrieveUI/retrieveColors";
 import { flutterCodeGenTextStyles } from "backend/src/flutter/flutterMain";
 import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
 import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
 import { composeCodeGenTextStyles } from "backend/src/compose/composeMain";
-import { PluginSettings, SettingWillChangeMessage } from "types";
+import { HtmlZipFile, PluginSettings, SettingWillChangeMessage } from "types";
 
 let userPluginSettings: PluginSettings;
 
@@ -45,6 +46,135 @@ export const defaultPluginSettings: PluginSettings = {
 function isKeyOfPluginSettings(key: string): key is keyof PluginSettings {
   return key in defaultPluginSettings;
 }
+
+const sanitizeFileName = (value: string, fallback: string) => {
+  const cleaned = value
+    .trim()
+    .replace(/[\\/:*?"<>|#%{}^~[\]`;\s]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  return cleaned || fallback;
+};
+
+const getDataUrlExtension = (mimeType: string) => {
+  switch (mimeType.toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/svg+xml":
+      return "svg";
+    case "image/webp":
+      return "webp";
+    case "image/gif":
+      return "gif";
+    case "image/png":
+    default:
+      return "png";
+  }
+};
+
+const extractDataUrlAssets = (
+  content: string,
+  assetFolder: string,
+  filePrefix: string,
+  files: HtmlZipFile[],
+) => {
+  let imageIndex = 0;
+  const dataUrlPattern =
+    /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g;
+
+  return content.replace(dataUrlPattern, (_match, mimeType, base64) => {
+    imageIndex += 1;
+    const extension = getDataUrlExtension(mimeType);
+    const assetName = `${filePrefix}-${imageIndex.toString().padStart(2, "0")}.${extension}`;
+    const assetPath = `${assetFolder}/${assetName}`;
+
+    files.push({
+      path: assetPath,
+      content: base64,
+      encoding: "base64",
+    });
+
+    return `assets/${assetName}`;
+  });
+};
+
+const wrapHtmlDocument = (title: string, body: string, css?: string) => {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title.replace(/[<>&"]/g, "")}</title>
+${css ? `  <style>\n${css}\n  </style>\n` : ""}</head>
+<body>
+${body}
+</body>
+</html>`;
+};
+
+const buildHtmlZipFiles = async (settings: PluginSettings) => {
+  const selectedNodes = figma.currentPage.selection;
+
+  if (selectedNodes.length === 0) {
+    throw new Error("Please select at least one section or frame.");
+  }
+
+  const exportSettings: PluginSettings = {
+    ...settings,
+    framework: "HTML",
+    htmlGenerationMode: "html",
+    embedImages: true,
+  };
+
+  const files: HtmlZipFile[] = [];
+  const multiExport = selectedNodes.length > 1;
+
+  for (const [index, node] of selectedNodes.entries()) {
+    const baseName = sanitizeFileName(
+      node.name,
+      `section-${(index + 1).toString().padStart(2, "0")}`,
+    );
+    const folder = multiExport
+      ? `${(index + 1).toString().padStart(2, "0")}-${baseName}`
+      : baseName;
+    const convertedSelection = settings.useOldPluginVersion2025
+      ? oldConvertNodesToAltNodes([node], null)
+      : await nodesToJSON([node], exportSettings);
+    const result = await htmlMain(convertedSelection, exportSettings);
+    const htmlAssetFiles: HtmlZipFile[] = [];
+    const cssAssetFiles: HtmlZipFile[] = [];
+    const html = extractDataUrlAssets(
+      result.html,
+      `${folder}/assets`,
+      "image",
+      htmlAssetFiles,
+    );
+    const css = result.css
+      ? extractDataUrlAssets(
+          result.css,
+          `${folder}/assets`,
+          "css-image",
+          cssAssetFiles,
+        )
+      : undefined;
+
+    files.push({
+      path: `${folder}/index.html`,
+      content: wrapHtmlDocument(baseName, html, css),
+      encoding: "text",
+    });
+    files.push(...htmlAssetFiles, ...cssAssetFiles);
+  }
+
+  return {
+    fileName:
+      selectedNodes.length === 1
+        ? `${sanitizeFileName(selectedNodes[0].name, "figma-html")}.zip`
+        : "figma-sections-html.zip",
+    files,
+  };
+};
 
 const getUserSettings = async () => {
   console.log("[DEBUG] getUserSettings - Starting to fetch user settings");
@@ -177,6 +307,19 @@ const standardMode = async () => {
       (userPluginSettings as any)[key] = value;
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
       safeRun(userPluginSettings);
+    } else if (msg.type === "download-html-zip") {
+      try {
+        const zipData = await buildHtmlZipFiles(userPluginSettings);
+        figma.ui.postMessage({
+          type: "html-zip-ready",
+          ...zipData,
+        });
+      } catch (error) {
+        figma.ui.postMessage({
+          type: "html-zip-error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     } else if (msg.type === "get-selection-json") {
       console.log("[DEBUG] get-selection-json message received");
 

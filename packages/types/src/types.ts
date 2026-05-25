@@ -19,7 +19,7 @@ export interface TailwindSettings extends HTMLSettings {
   useTailwind4: boolean;
   thresholdPercent: number;
   baseFontFamily: string;
-  fontFamilyCustomConfig: Record<string, string[]>
+  fontFamilyCustomConfig: Record<string, string[]>;
 }
 export interface FlutterSettings {
   flutterGenerationMode: "fullApp" | "stateless" | "snippet";
@@ -31,7 +31,8 @@ export interface ComposeSettings {
   composeGenerationMode: "snippet" | "composable" | "screen";
 }
 export interface PluginSettings
-  extends HTMLSettings,
+  extends
+    HTMLSettings,
     TailwindSettings,
     FlutterSettings,
     SwiftUISettings,
@@ -76,6 +77,16 @@ export type SettingsChangedMessage = Message & {
 export type ErrorMessage = Message & {
   type: "error";
   error: string;
+};
+export type HtmlZipFile = {
+  path: string;
+  content: string;
+  encoding?: "text" | "base64";
+};
+export type HtmlZipReadyMessage = Message & {
+  type: "html-zip-ready";
+  fileName: string;
+  files: HtmlZipFile[];
 };
 
 // Nodes

@@ -11,9 +11,11 @@ import {
   ErrorMessage,
   SettingsChangedMessage,
   Warning,
+  HtmlZipReadyMessage,
 } from "types";
 import { postUISettingsChangingMessage } from "./messaging";
 import copy from "copy-to-clipboard";
+import { createZipBlob } from "./zip";
 
 interface AppState {
   code: string;
@@ -27,6 +29,16 @@ interface AppState {
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
 const isDarkFigmaBackground = (background: string) => {
   const value = background.trim().toLowerCase();
 
@@ -117,6 +129,23 @@ export default function App() {
         case "selection-json":
           const json = event.data.pluginMessage.data;
           copy(JSON.stringify(json, null, 2));
+          break;
+
+        case "html-zip-ready":
+          const zipMessage = untypedMessage as HtmlZipReadyMessage;
+          downloadBlob(createZipBlob(zipMessage.files), zipMessage.fileName);
+          break;
+
+        case "html-zip-error":
+          const zipErrorMessage = untypedMessage as ErrorMessage;
+          setState((prevState) => ({
+            ...prevState,
+            warnings: [
+              ...(prevState.warnings ?? []),
+              zipErrorMessage.error || "Unable to export HTML zip.",
+            ],
+          }));
+          break;
 
         default:
           break;
@@ -172,6 +201,12 @@ export default function App() {
         settings={state.settings}
         colors={state.colors}
         gradients={state.gradients}
+        onDownloadHtmlZip={() => {
+          parent.postMessage(
+            { pluginMessage: { type: "download-html-zip" } },
+            "*",
+          );
+        }}
       />
     </div>
   );

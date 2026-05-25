@@ -40,6 +40,7 @@ type PluginUIProps = {
   colors: SolidColorConversion[];
   gradients: LinearGradientConversion[];
   isLoading: boolean;
+  onDownloadHtmlZip?: () => void;
 };
 
 const frameworks: Framework[] = ["HTML", "Tailwind", "Flutter", "SwiftUI"];
@@ -192,6 +193,7 @@ export const PluginUI = (props: PluginUIProps) => {
                 selectPreferenceOptions={selectPreferenceOptions}
                 settings={props.settings}
                 onPreferenceChanged={props.onPreferenceChanged}
+                onDownloadHtmlZip={props.onDownloadHtmlZip}
               />
 
               {props.colors.length > 0 && (

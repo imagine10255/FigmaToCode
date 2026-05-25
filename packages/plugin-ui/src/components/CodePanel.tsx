@@ -12,6 +12,7 @@ import EmptyState from "./EmptyState";
 import SettingsGroup from "./SettingsGroup";
 import FrameworkTabs from "./FrameworkTabs";
 import { TailwindSettings } from "./TailwindSettings";
+import { DownloadIcon } from "lucide-react";
 
 interface CodePanelProps {
   code: string;
@@ -23,6 +24,7 @@ interface CodePanelProps {
     key: keyof PluginSettings,
     value: PluginSettings[keyof PluginSettings],
   ) => void;
+  onDownloadHtmlZip?: () => void;
 }
 
 const CodePanel = (props: CodePanelProps) => {
@@ -36,6 +38,7 @@ const CodePanel = (props: CodePanelProps) => {
     selectedFramework,
     settings,
     onPreferenceChanged,
+    onDownloadHtmlZip,
   } = props;
   const isCodeEmpty = code === "";
 
@@ -143,11 +146,24 @@ const CodePanel = (props: CodePanelProps) => {
           Code
         </p>
         {!isCodeEmpty && (
-          <CopyButton
-            value={prefixedCode}
-            onMouseEnter={handleButtonHover}
-            onMouseLeave={handleButtonLeave}
-          />
+          <div className="flex items-center gap-1">
+            {selectedFramework === "HTML" && onDownloadHtmlZip && (
+              <button
+                type="button"
+                onClick={onDownloadHtmlZip}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-foreground transition-colors hover:bg-muted"
+                aria-label="Download HTML and image assets as a zip"
+                title="Download HTML and image assets as a zip"
+              >
+                <DownloadIcon size={15} />
+              </button>
+            )}
+            <CopyButton
+              value={prefixedCode}
+              onMouseEnter={handleButtonHover}
+              onMouseLeave={handleButtonLeave}
+            />
+          </div>
         )}
       </div>
 
