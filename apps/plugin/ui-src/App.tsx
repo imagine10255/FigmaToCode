@@ -29,8 +29,6 @@ interface AppState {
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
-const HTML_PREVIEW_URL = "https://help.gdg168.com/";
-const HTML_PREVIEW_ORIGIN = "https://help.gdg168.com";
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -103,8 +101,9 @@ const downloadCurrentHtmlZip = (html: string, extractImages: boolean) => {
 
   downloadBlob(createZipBlob(files), "figma-html.zip");
 };
-const openHtmlPreview = (html: string) => {
-  const previewWindow = window.open(HTML_PREVIEW_URL, "_blank");
+const openHtmlPreview = (html: string, url: string) => {
+  const previewUrl = new URL(url);
+  const previewWindow = window.open(previewUrl.toString(), "_blank");
   if (!previewWindow) {
     return;
   }
@@ -123,7 +122,7 @@ const openHtmlPreview = (html: string) => {
   let attempts = 0;
   const postPayload = () => {
     attempts += 1;
-    previewWindow.postMessage(payload, HTML_PREVIEW_ORIGIN);
+    previewWindow.postMessage(payload, previewUrl.origin);
 
     if (attempts >= 10) {
       window.clearInterval(timer);
@@ -285,8 +284,18 @@ export default function App() {
             extractImages,
           );
         }}
-        onPreviewHtml={() => {
-          openHtmlPreview(state.htmlPreview.content || state.code);
+        onPreviewHtml={(url) => {
+          try {
+            openHtmlPreview(state.htmlPreview.content || state.code, url);
+          } catch (_error) {
+            setState((prevState) => ({
+              ...prevState,
+              warnings: [
+                ...(prevState.warnings ?? []),
+                "Please enter a valid preview URL.",
+              ],
+            }));
+          }
         }}
       />
     </div>

@@ -2,7 +2,6 @@ import GradientsPanel from "./components/GradientsPanel";
 import copy from "copy-to-clipboard";
 import CodePanel from "./components/CodePanel";
 import EmptyState from "./components/EmptyState";
-import About from "./components/About";
 import WarningsPanel from "./components/WarningsPanel";
 import {
   Framework,
@@ -17,8 +16,8 @@ import {
   selectPreferenceOptions,
 } from "./codegenPreferenceOptions";
 import Loading from "./components/Loading";
-import { useEffect, useState } from "react";
-import { InfoIcon } from "lucide-react";
+import { useState } from "react";
+import { SettingsIcon } from "lucide-react";
 import React from "react";
 import { Button } from "./components/ui/button";
 import { ScrollArea } from "./components/ui/scroll-area";
@@ -39,26 +38,44 @@ type PluginUIProps = {
   gradients: LinearGradientConversion[];
   isLoading: boolean;
   onDownloadHtmlZip?: (extractImages: boolean) => void;
-  onPreviewHtml?: () => void;
+  onPreviewHtml?: (url: string) => void;
 };
 
 const frameworks: Framework[] = ["HTML"];
-const LOADING_INDICATOR_DELAY_MS = 250;
+const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
+const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrl";
+
+const getStoredPreviewUrl = () => {
+  try {
+    return window.localStorage.getItem(PREVIEW_URL_STORAGE_KEY);
+  } catch (_error) {
+    return null;
+  }
+};
+
+const setStoredPreviewUrl = (url: string) => {
+  try {
+    window.localStorage.setItem(PREVIEW_URL_STORAGE_KEY, url);
+  } catch (_error) {
+    // Figma may block localStorage in some plugin contexts. The in-memory value
+    // still updates for the current session.
+  }
+};
 
 type FrameworkTabsProps = {
   frameworks: Framework[];
   selectedFramework: Framework;
   setSelectedFramework: (framework: Framework) => void;
-  showAbout: boolean;
-  setShowAbout: (show: boolean) => void;
+  showSettings: boolean;
+  setShowSettings: (show: boolean) => void;
 };
 
 const FrameworkTabs = ({
   frameworks,
   selectedFramework,
   setSelectedFramework,
-  showAbout,
-  setShowAbout,
+  showSettings,
+  setShowSettings,
 }: FrameworkTabsProps) => {
   return (
     <div className="grid grid-cols-1 gap-1 grow">
@@ -68,13 +85,13 @@ const FrameworkTabs = ({
           size="sm"
           key={`tab ${tab}`}
           className={`w-full h-8 rounded-md text-sm ${
-            selectedFramework === tab && !showAbout
+            selectedFramework === tab && !showSettings
               ? "bg-primary text-primary-foreground shadow-xs hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary"
               : "bg-muted text-foreground hover:bg-primary/90 hover:text-primary-foreground dark:hover:bg-primary/90"
           }`}
           onClick={() => {
             setSelectedFramework(tab as Framework);
-            setShowAbout(false);
+            setShowSettings(false);
           }}
         >
           {tab}
@@ -85,32 +102,12 @@ const FrameworkTabs = ({
 };
 
 export const PluginUI = (props: PluginUIProps) => {
-  const [showAbout, setShowAbout] = useState(false);
-  const [showLoading, setShowLoading] = useState(false);
-  const [hasHandledInitialLoad, setHasHandledInitialLoad] = useState(false);
-
-  useEffect(() => {
-    if (!props.isLoading) {
-      setShowLoading(false);
-      setHasHandledInitialLoad(true);
-      return;
-    }
-
-    if (hasHandledInitialLoad) {
-      setShowLoading(true);
-      return;
-    }
-
-    // On plugin startup, the UI waits for a ready handshake before the first conversion.
-    // Delay the loader only for that initial pass to avoid a one-frame loading flash.
-    const timer = window.setTimeout(() => {
-      setShowLoading(true);
-    }, LOADING_INDICATOR_DELAY_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [props.isLoading]);
-
-  if (props.isLoading) return showLoading ? <Loading /> : null;
+  const [showSettings, setShowSettings] = useState(false);
+  const [savedPreviewUrl, setSavedPreviewUrl] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_PREVIEW_URL;
+    return getStoredPreviewUrl() ?? DEFAULT_PREVIEW_URL;
+  });
+  const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
 
   const isEmpty = props.code === "";
   const warnings = props.warnings ?? [];
@@ -124,23 +121,24 @@ export const PluginUI = (props: PluginUIProps) => {
               frameworks={frameworks}
               selectedFramework={props.selectedFramework}
               setSelectedFramework={props.setSelectedFramework}
-              showAbout={showAbout}
-              setShowAbout={setShowAbout}
+              showSettings={showSettings}
+              setShowSettings={setShowSettings}
             />
             <Button
               variant="ghost"
               size="icon"
               className={`h-8 w-8 rounded-md ${
-                showAbout
+                showSettings
                   ? "bg-primary text-primary-foreground shadow-xs hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary"
                   : "bg-muted text-foreground hover:bg-primary/90 hover:text-primary-foreground dark:hover:bg-primary/90"
               }`}
               onClick={() => {
-                setShowAbout(!showAbout);
+                setDraftPreviewUrl(savedPreviewUrl);
+                setShowSettings(!showSettings);
               }}
-              aria-label="About"
+              aria-label="Settings"
             >
-              <InfoIcon size={16} />
+              <SettingsIcon size={16} />
             </Button>
           </div>
         </div>
@@ -152,11 +150,54 @@ export const PluginUI = (props: PluginUIProps) => {
           }}
         ></div>
         <ScrollArea className="min-h-0 flex-1 overflow-hidden">
-          {showAbout ? (
-            <About
-              useOldPluginVersion={props.settings?.useOldPluginVersion2025}
-              onPreferenceChanged={props.onPreferenceChanged}
-            />
+          {props.isLoading ? (
+            <Loading />
+          ) : showSettings ? (
+            <div className="flex flex-col gap-3 px-4 pt-4 pb-3">
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-semibold text-foreground">
+                  Preview Settings
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Preview uses the saved URL. Changes take effect after Save.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-md border bg-card p-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Preview URL
+                </label>
+                <input
+                  type="url"
+                  value={draftPreviewUrl}
+                  onChange={(event) => setDraftPreviewUrl(event.target.value)}
+                  className="h-8 rounded-md border bg-background px-2 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                />
+                <div className="flex justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftPreviewUrl(savedPreviewUrl);
+                      setShowSettings(false);
+                    }}
+                    className="h-7 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSavedPreviewUrl(draftPreviewUrl);
+                      setStoredPreviewUrl(draftPreviewUrl);
+                      setShowSettings(false);
+                    }}
+                    className="h-7 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : isEmpty ? (
             <div className="flex min-h-full items-center justify-center">
               <EmptyState />
@@ -173,7 +214,11 @@ export const PluginUI = (props: PluginUIProps) => {
                 settings={props.settings}
                 onPreferenceChanged={props.onPreferenceChanged}
                 onDownloadHtmlZip={props.onDownloadHtmlZip}
-                onPreviewHtml={props.onPreviewHtml}
+                onPreviewHtml={
+                  props.onPreviewHtml
+                    ? () => props.onPreviewHtml?.(savedPreviewUrl)
+                    : undefined
+                }
               />
 
               {props.gradients.length > 0 && (
