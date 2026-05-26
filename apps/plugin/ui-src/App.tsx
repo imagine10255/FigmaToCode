@@ -12,6 +12,9 @@ import {
   SettingsChangedMessage,
   Warning,
   HtmlZipFile,
+  IframePreviewPayload,
+  SelectionPreviewDataMessage,
+  SelectionPreviewNode,
 } from "types";
 import { postUISettingsChangingMessage } from "./messaging";
 import copy from "copy-to-clipboard";
@@ -26,6 +29,8 @@ interface AppState {
   colors: SolidColorConversion[];
   gradients: LinearGradientConversion[];
   warnings: Warning[];
+  selectionPreviewNodes: SelectionPreviewNode[];
+  previewRefreshKey: number;
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
@@ -101,37 +106,6 @@ const downloadCurrentHtmlZip = (html: string, extractImages: boolean) => {
 
   downloadBlob(createZipBlob(files), "figma-html.zip");
 };
-const openHtmlPreview = (html: string, url: string) => {
-  const previewUrl = new URL(url);
-  const previewWindow = window.open(previewUrl.toString(), "_blank");
-  if (!previewWindow) {
-    return;
-  }
-
-  const payload = {
-    type: "figma-to-code-preview",
-    version: 1,
-    sections: [
-      {
-        name: "Figma selection",
-        html,
-        assets: [],
-      },
-    ],
-  };
-  let attempts = 0;
-  const postPayload = () => {
-    attempts += 1;
-    previewWindow.postMessage(payload, previewUrl.origin);
-
-    if (attempts >= 10) {
-      window.clearInterval(timer);
-    }
-  };
-
-  postPayload();
-  const timer = window.setInterval(postPayload, 500);
-};
 const isDarkFigmaBackground = (background: string) => {
   const value = background.trim().toLowerCase();
 
@@ -154,6 +128,8 @@ export default function App() {
     colors: [],
     gradients: [],
     warnings: [],
+    selectionPreviewNodes: [],
+    previewRefreshKey: 0,
   });
 
   const rootStyles = getComputedStyle(document.documentElement);
@@ -224,6 +200,15 @@ export default function App() {
           copy(JSON.stringify(json, null, 2));
           break;
 
+        case "selection-preview-data":
+          const selectionPreviewMessage =
+            untypedMessage as SelectionPreviewDataMessage;
+          setState((prevState) => ({
+            ...prevState,
+            selectionPreviewNodes: selectionPreviewMessage.nodes,
+          }));
+          break;
+
         default:
           break;
       }
@@ -262,6 +247,21 @@ export default function App() {
   };
 
   const darkMode = isDarkFigmaBackground(figmaColorBgValue);
+  const html = state.htmlPreview.content || state.code;
+  const iframePreviewPayload: IframePreviewPayload = {
+    type: "figma-to-code-preview",
+    version: 1,
+    selection: state.selectionPreviewNodes,
+    sections: html
+      ? [
+          {
+            name: state.selectionPreviewNodes[0]?.name ?? "Figma selection",
+            html,
+            assets: [],
+          },
+        ]
+      : [],
+  };
 
   return (
     <div
@@ -278,24 +278,16 @@ export default function App() {
         settings={state.settings}
         colors={state.colors}
         gradients={state.gradients}
+        previewPayload={iframePreviewPayload}
+        previewRefreshKey={state.previewRefreshKey}
         onDownloadHtmlZip={(extractImages) => {
-          downloadCurrentHtmlZip(
-            state.htmlPreview.content || state.code,
-            extractImages,
-          );
+          downloadCurrentHtmlZip(html, extractImages);
         }}
-        onPreviewHtml={(url) => {
-          try {
-            openHtmlPreview(state.htmlPreview.content || state.code, url);
-          } catch (_error) {
-            setState((prevState) => ({
-              ...prevState,
-              warnings: [
-                ...(prevState.warnings ?? []),
-                "Please enter a valid preview URL.",
-              ],
-            }));
-          }
+        onPreviewHtml={() => {
+          setState((prevState) => ({
+            ...prevState,
+            previewRefreshKey: prevState.previewRefreshKey + 1,
+          }));
         }}
       />
     </div>

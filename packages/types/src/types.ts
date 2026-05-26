@@ -92,6 +92,34 @@ export type HtmlZipReadyMessage = Message & {
   fileName: string;
   files: HtmlZipFile[];
 };
+export type PreviewRgb = {
+  r: number;
+  g: number;
+  b: number;
+};
+export type SelectionPreviewNode = {
+  id: string;
+  name: string;
+  type: string;
+  width: number | null;
+  height: number | null;
+  fill: PreviewRgb | null;
+};
+export type SelectionPreviewDataMessage = Message & {
+  type: "selection-preview-data";
+  nodes: SelectionPreviewNode[];
+};
+export type IframePreviewSection = {
+  name: string;
+  html: string;
+  assets: HtmlZipFile[];
+};
+export type IframePreviewPayload = {
+  type: "figma-to-code-preview";
+  version: 1;
+  selection: SelectionPreviewNode[];
+  sections: IframePreviewSection[];
+};
 
 // Nodes
 export type ParentNode = BaseNode & ChildrenMixin;

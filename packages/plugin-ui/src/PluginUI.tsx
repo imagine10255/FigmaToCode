@@ -6,6 +6,7 @@ import WarningsPanel from "./components/WarningsPanel";
 import {
   Framework,
   HTMLPreview,
+  IframePreviewPayload,
   LinearGradientConversion,
   PluginSettings,
   SolidColorConversion,
@@ -16,8 +17,8 @@ import {
   selectPreferenceOptions,
 } from "./codegenPreferenceOptions";
 import Loading from "./components/Loading";
-import { useState } from "react";
-import { SettingsIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { SettingsIcon, XIcon } from "lucide-react";
 import React from "react";
 import { Button } from "./components/ui/button";
 import { ScrollArea } from "./components/ui/scroll-area";
@@ -37,13 +38,17 @@ type PluginUIProps = {
   colors: SolidColorConversion[];
   gradients: LinearGradientConversion[];
   isLoading: boolean;
+  previewPayload: IframePreviewPayload;
+  previewRefreshKey: number;
   onDownloadHtmlZip?: (extractImages: boolean) => void;
-  onPreviewHtml?: (url: string) => void;
+  onPreviewHtml?: () => void;
 };
 
 const frameworks: Framework[] = ["HTML"];
-const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
-const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrl";
+const DEFAULT_PREVIEW_URL = "https://www.google.com/";
+const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrlV2";
+const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
+const PREVIEW_WINDOW_SIZE = { width: 960, height: 720 };
 
 const getStoredPreviewUrl = () => {
   try {
@@ -59,6 +64,14 @@ const setStoredPreviewUrl = (url: string) => {
   } catch (_error) {
     // Figma may block localStorage in some plugin contexts. The in-memory value
     // still updates for the current session.
+  }
+};
+
+const getTargetOrigin = (url: string) => {
+  try {
+    return new URL(url).origin;
+  } catch (_error) {
+    return null;
   }
 };
 
@@ -102,7 +115,9 @@ const FrameworkTabs = ({
 };
 
 export const PluginUI = (props: PluginUIProps) => {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [savedPreviewUrl, setSavedPreviewUrl] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_PREVIEW_URL;
     return getStoredPreviewUrl() ?? DEFAULT_PREVIEW_URL;
@@ -111,6 +126,52 @@ export const PluginUI = (props: PluginUIProps) => {
 
   const isEmpty = props.code === "";
   const warnings = props.warnings ?? [];
+  const previewOrigin = getTargetOrigin(savedPreviewUrl);
+  const postPreviewPayload = useCallback(() => {
+    if (!showPreviewFrame || !previewOrigin || !iframeRef.current?.contentWindow) {
+      return;
+    }
+
+    // UI -> iframe: forward the latest Figma payload to the embedded preview app.
+    iframeRef.current.contentWindow.postMessage(
+      props.previewPayload,
+      previewOrigin,
+    );
+  }, [previewOrigin, props.previewPayload, showPreviewFrame]);
+
+  useEffect(() => {
+    let attempts = 0;
+    postPreviewPayload();
+
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      postPreviewPayload();
+
+      if (attempts >= 8) {
+        window.clearInterval(timer);
+      }
+    }, 300);
+
+    return () => window.clearInterval(timer);
+  }, [
+    postPreviewPayload,
+    props.previewPayload,
+    props.previewRefreshKey,
+    savedPreviewUrl,
+  ]);
+  const resizePluginWindow = (width: number, height: number) => {
+    parent.postMessage({ pluginMessage: { type: "resize-ui", width, height } }, "*");
+  };
+  const openPreviewFrame = () => {
+    setShowSettings(false);
+    setShowPreviewFrame(true);
+    resizePluginWindow(PREVIEW_WINDOW_SIZE.width, PREVIEW_WINDOW_SIZE.height);
+    props.onPreviewHtml?.();
+  };
+  const closePreviewFrame = () => {
+    setShowPreviewFrame(false);
+    resizePluginWindow(DEFAULT_WINDOW_SIZE.width, DEFAULT_WINDOW_SIZE.height);
+  };
 
   return (
     <TooltipProvider>
@@ -134,6 +195,7 @@ export const PluginUI = (props: PluginUIProps) => {
               }`}
               onClick={() => {
                 setDraftPreviewUrl(savedPreviewUrl);
+                setShowPreviewFrame(false);
                 setShowSettings(!showSettings);
               }}
               aria-label="Settings"
@@ -150,9 +212,7 @@ export const PluginUI = (props: PluginUIProps) => {
           }}
         ></div>
         <ScrollArea className="min-h-0 flex-1 overflow-hidden">
-          {props.isLoading ? (
-            <Loading />
-          ) : showSettings ? (
+          {showSettings ? (
             <div className="flex flex-col gap-3 px-4 pt-4 pb-3">
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-semibold text-foreground">
@@ -198,12 +258,55 @@ export const PluginUI = (props: PluginUIProps) => {
                 </div>
               </div>
             </div>
-          ) : isEmpty ? (
-            <div className="flex min-h-full items-center justify-center">
-              <EmptyState />
+          ) : showPreviewFrame ? (
+            <div className="flex h-[672px] flex-col gap-2 px-3 py-3">
+              <div className="flex h-8 shrink-0 items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    Preview
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {savedPreviewUrl}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-md"
+                  onClick={closePreviewFrame}
+                  aria-label="Close preview"
+                >
+                  <XIcon size={16} />
+                </Button>
+              </div>
+
+              {!previewOrigin && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  Preview URL is invalid. Open settings and save a valid URL.
+                </div>
+              )}
+
+              <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-white">
+                <iframe
+                  ref={iframeRef}
+                  src={savedPreviewUrl}
+                  title="Embedded preview"
+                  className="h-full w-full border-0 bg-white"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  onLoad={postPreviewPayload}
+                />
+              </div>
             </div>
           ) : (
             <div className="flex flex-col items-center px-4 pt-3 pb-2 gap-2 dark:bg-transparent">
+              {props.isLoading ? (
+                <Loading />
+              ) : isEmpty ? (
+                <div className="flex min-h-[180px] items-center justify-center">
+                  <EmptyState />
+                </div>
+              ) : (
+                <>
               {warnings.length > 0 && <WarningsPanel warnings={warnings} />}
 
               <CodePanel
@@ -214,11 +317,7 @@ export const PluginUI = (props: PluginUIProps) => {
                 settings={props.settings}
                 onPreferenceChanged={props.onPreferenceChanged}
                 onDownloadHtmlZip={props.onDownloadHtmlZip}
-                onPreviewHtml={
-                  props.onPreviewHtml
-                    ? () => props.onPreviewHtml?.(savedPreviewUrl)
-                    : undefined
-                }
+                onPreviewHtml={openPreviewFrame}
               />
 
               {props.gradients.length > 0 && (
@@ -230,6 +329,8 @@ export const PluginUI = (props: PluginUIProps) => {
                     }}
                   />
                 </div>
+              )}
+                </>
               )}
             </div>
           )}

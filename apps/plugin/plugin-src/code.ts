@@ -19,6 +19,7 @@ import {
   DownloadHtmlZipMessage,
   HtmlZipFile,
   PluginSettings,
+  SelectionPreviewNode,
   SettingWillChangeMessage,
 } from "types";
 
@@ -123,6 +124,51 @@ ${css ? `  <style>\n${css}\n  </style>\n` : ""}</head>
 ${body}
 </body>
 </html>`;
+};
+
+const toPreviewRgb = (color: RGB) => ({
+  r: Math.round(color.r * 255),
+  g: Math.round(color.g * 255),
+  b: Math.round(color.b * 255),
+});
+
+const getPreviewFill = (node: SceneNode) => {
+  if (!("fills" in node) || !Array.isArray(node.fills)) {
+    return null;
+  }
+
+  const solidFill = node.fills.find(
+    (paint): paint is SolidPaint => paint.type === "SOLID",
+  );
+
+  return solidFill ? toPreviewRgb(solidFill.color) : null;
+};
+
+const getPreviewSize = (node: SceneNode) => ({
+  width: "width" in node ? node.width : null,
+  height: "height" in node ? node.height : null,
+});
+
+const buildSelectionPreviewNodes = (): SelectionPreviewNode[] => {
+  return figma.currentPage.selection.map((node) => {
+    const size = getPreviewSize(node);
+
+    return {
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      width: size.width,
+      height: size.height,
+      fill: getPreviewFill(node),
+    };
+  });
+};
+
+const postSelectionPreviewData = () => {
+  figma.ui.postMessage({
+    type: "selection-preview-data",
+    nodes: buildSelectionPreviewNodes(),
+  });
 };
 
 type HtmlExportSection = {
@@ -312,6 +358,7 @@ const standardMode = async () => {
       return;
     }
     initialized = true;
+    postSelectionPreviewData();
     await initSettings();
   };
 
@@ -321,6 +368,7 @@ const standardMode = async () => {
       "[DEBUG] selectionchange event - New selection count:",
       figma.currentPage.selection.length,
     );
+    postSelectionPreviewData();
     safeRun(userPluginSettings);
   });
 
@@ -366,6 +414,13 @@ const standardMode = async () => {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    } else if (msg.type === "resize-ui") {
+      const { width, height } = msg as {
+        type: "resize-ui";
+        width: number;
+        height: number;
+      };
+      figma.ui.resize(width, height);
     } else if (msg.type === "get-selection-json") {
       console.log("[DEBUG] get-selection-json message received");
 

@@ -9,7 +9,14 @@
   "permissions": [],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["none"]
+    "allowedDomains": [
+      "https://help.gdg168.com",
+      "https://www.google.com"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:3000/",
+      "http://localhost:4200/"
+    ]
   },
   "codegenLanguages": [
     { "label": "HTML", "value": "html" },
