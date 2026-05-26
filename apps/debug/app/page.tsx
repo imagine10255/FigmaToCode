@@ -43,6 +43,7 @@ export default function Web() {
                 selectionNodes={[]}
                 activePreviewNodeId={null}
                 isPreviewLoading={false}
+                previewUrl="http://localhost:4200/"
                 previewPayload={{
                   type: "figma-to-code-preview",
                   version: 1,
@@ -76,6 +77,7 @@ export default function Web() {
                 selectionNodes={[]}
                 activePreviewNodeId={null}
                 isPreviewLoading={false}
+                previewUrl="http://localhost:4200/"
                 previewPayload={{
                   type: "figma-to-code-preview",
                   version: 1,

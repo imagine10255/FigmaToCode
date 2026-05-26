@@ -35,14 +35,15 @@ type PluginUIProps = {
   selectionNodes: SelectionPreviewNode[];
   activePreviewNodeId: string | null;
   isPreviewLoading: boolean;
+  previewUrl: string;
   previewPayload: IframePreviewPayload;
   previewRefreshKey: number;
+  onPreviewUrlChanged?: (url: string) => void;
   onDownloadHtmlZip?: (extractImages: boolean) => void;
   onPreviewNode?: (nodeId: string) => void;
 };
 
 const DEFAULT_PREVIEW_URL = "http://localhost:4200/";
-const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrlV3";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
@@ -52,23 +53,6 @@ const getPreviewWindowHeight = () => {
   }
 
   return Math.max(700, Math.floor(window.screen.availHeight));
-};
-
-const getStoredPreviewUrl = () => {
-  try {
-    return window.localStorage.getItem(PREVIEW_URL_STORAGE_KEY);
-  } catch (_error) {
-    return null;
-  }
-};
-
-const setStoredPreviewUrl = (url: string) => {
-  try {
-    window.localStorage.setItem(PREVIEW_URL_STORAGE_KEY, url);
-  } catch (_error) {
-    // Figma may block localStorage in some plugin contexts. The in-memory value
-    // still updates for the current session.
-  }
 };
 
 const getTargetOrigin = (url: string) => {
@@ -137,11 +121,9 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [extractImages, setExtractImages] = useState(true);
-  const [savedPreviewUrl, setSavedPreviewUrl] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_PREVIEW_URL;
-    return getStoredPreviewUrl() ?? DEFAULT_PREVIEW_URL;
-  });
+  const savedPreviewUrl = props.previewUrl || DEFAULT_PREVIEW_URL;
   const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
+  const [previewUrlError, setPreviewUrlError] = useState("");
 
   const warnings = props.warnings ?? [];
   const selectionNodes = props.selectionNodes ?? [];
@@ -212,7 +194,7 @@ export const PluginUI = (props: PluginUIProps) => {
     setDraftPreviewUrl(savedPreviewUrl);
     setShowSettings((current) => !current);
   };
-  const SettingsPanel = () => (
+  const settingsPanel = (
     <div className="flex w-full flex-col gap-2 rounded-md border bg-card p-3">
       <label className="text-xs font-medium text-muted-foreground">
         Preview URL
@@ -220,9 +202,15 @@ export const PluginUI = (props: PluginUIProps) => {
       <input
         type="url"
         value={draftPreviewUrl}
-        onChange={(event) => setDraftPreviewUrl(event.target.value)}
+        onChange={(event) => {
+          setDraftPreviewUrl(event.target.value);
+          setPreviewUrlError("");
+        }}
         className="h-8 rounded-md border bg-background px-2 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
       />
+      {previewUrlError && (
+        <p className="text-xs text-destructive">{previewUrlError}</p>
+      )}
       <div className="flex justify-end gap-1">
         <button
           type="button"
@@ -237,8 +225,12 @@ export const PluginUI = (props: PluginUIProps) => {
         <button
           type="button"
           onClick={() => {
-            setSavedPreviewUrl(draftPreviewUrl);
-            setStoredPreviewUrl(draftPreviewUrl);
+            try {
+              props.onPreviewUrlChanged?.(new URL(draftPreviewUrl).toString());
+            } catch (_error) {
+              setPreviewUrlError("Please enter a valid URL.");
+              return;
+            }
             setShowSettings(false);
           }}
           className="h-7 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -248,7 +240,7 @@ export const PluginUI = (props: PluginUIProps) => {
       </div>
     </div>
   );
-  const SelectionHeaderActions = ({ compact = false }: { compact?: boolean }) => (
+  const renderSelectionHeaderActions = (compact = false) => (
     <div className="flex items-center gap-1">
       {props.onDownloadHtmlZip && selectionNodes.length > 0 && (
         <button
@@ -299,10 +291,10 @@ export const PluginUI = (props: PluginUIProps) => {
                       {selectionNodes.length}
                     </span>
                   </p>
-                  <SelectionHeaderActions compact />
+                  {renderSelectionHeaderActions(true)}
                 </div>
                 <div className="flex h-[calc(100%-44px)] flex-col gap-2 overflow-auto p-2">
-                  {showSettings && <SettingsPanel />}
+                  {showSettings && settingsPanel}
                   <SelectionList
                     nodes={selectionNodes}
                     activePreviewNodeId={props.activePreviewNodeId}
@@ -368,10 +360,10 @@ export const PluginUI = (props: PluginUIProps) => {
                     {selectionNodes.length}
                   </span>
                 </p>
-                <SelectionHeaderActions />
+                {renderSelectionHeaderActions()}
               </div>
 
-              {showSettings && <SettingsPanel />}
+              {showSettings && settingsPanel}
 
               {selectionNodes.length > 0 && (
                 <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">

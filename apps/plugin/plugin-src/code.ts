@@ -23,6 +23,8 @@ import {
 } from "types";
 
 let userPluginSettings: PluginSettings;
+const previewUrlStorageKey = "bitstackPreviewUrl";
+const defaultPreviewUrl = "http://localhost:4200/";
 const forcedDefaultSettingKeys = new Set<keyof PluginSettings>([
   "framework",
   "htmlGenerationMode",
@@ -167,6 +169,22 @@ const postSelectionPreviewData = () => {
   figma.ui.postMessage({
     type: "selection-preview-data",
     nodes: buildSelectionPreviewNodes(),
+  });
+};
+
+const postPreviewUrlSetting = async () => {
+  const storedPreviewUrl = await figma.clientStorage.getAsync(
+    previewUrlStorageKey,
+  );
+  const previewUrl =
+    typeof storedPreviewUrl === "string" &&
+    /^https?:\/\//.test(storedPreviewUrl)
+      ? storedPreviewUrl
+      : defaultPreviewUrl;
+
+  figma.ui.postMessage({
+    type: "preview-url-setting",
+    previewUrl,
   });
 };
 
@@ -365,6 +383,7 @@ const standardMode = async () => {
 
     if (msg.type === "ui-ready") {
       await initializeOnce();
+      await postPreviewUrlSetting();
     } else if (msg.type === "pluginSettingWillChange") {
       const { key, value } = msg as SettingWillChangeMessage<unknown>;
       console.log(`[DEBUG] Setting changed: ${key} = ${value}`);
@@ -394,6 +413,21 @@ const standardMode = async () => {
         height: number;
       };
       figma.ui.resize(width, height);
+    } else if (msg.type === "save-preview-url") {
+      const { previewUrl } = msg as {
+        type: "save-preview-url";
+        previewUrl: string;
+      };
+      const normalizedPreviewUrl = new URL(previewUrl).toString();
+
+      await figma.clientStorage.setAsync(
+        previewUrlStorageKey,
+        normalizedPreviewUrl,
+      );
+      figma.ui.postMessage({
+        type: "preview-url-setting",
+        previewUrl: normalizedPreviewUrl,
+      });
     } else if (msg.type === "preview-node") {
       try {
         const { nodeId } = msg as { type: "preview-node"; nodeId: string };

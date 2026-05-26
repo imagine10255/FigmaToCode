@@ -33,6 +33,7 @@ interface AppState {
   activePreviewNodeId: string | null;
   previewHtml: string;
   previewName: string;
+  previewUrl: string;
   isPreviewLoading: boolean;
   previewRefreshKey: number;
 }
@@ -74,6 +75,7 @@ export default function App() {
     activePreviewNodeId: null,
     previewHtml: "",
     previewName: "",
+    previewUrl: "http://localhost:4200/",
     isPreviewLoading: false,
     previewRefreshKey: 0,
   });
@@ -85,7 +87,11 @@ export default function App() {
 
   useEffect(() => {
     window.onmessage = (event: MessageEvent) => {
-      const untypedMessage = event.data.pluginMessage as Message;
+      const untypedMessage = event.data?.pluginMessage as Message | undefined;
+      if (!untypedMessage?.type) {
+        return;
+      }
+
       console.log("[ui] message received:", untypedMessage);
 
       switch (untypedMessage.type) {
@@ -152,6 +158,15 @@ export default function App() {
           setState((prevState) => ({
             ...prevState,
             selectionPreviewNodes: selectionPreviewMessage.nodes,
+          }));
+          break;
+
+        case "preview-url-setting":
+          setState((prevState) => ({
+            ...prevState,
+            previewUrl:
+              (event.data.pluginMessage as { previewUrl?: string })
+                .previewUrl ?? prevState.previewUrl,
           }));
           break;
 
@@ -274,8 +289,24 @@ export default function App() {
         selectionNodes={state.selectionPreviewNodes}
         activePreviewNodeId={state.activePreviewNodeId}
         isPreviewLoading={state.isPreviewLoading}
+        previewUrl={state.previewUrl}
         previewPayload={iframePreviewPayload}
         previewRefreshKey={state.previewRefreshKey}
+        onPreviewUrlChanged={(previewUrl) => {
+          setState((prevState) => ({
+            ...prevState,
+            previewUrl,
+          }));
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "save-preview-url",
+                previewUrl,
+              },
+            },
+            "*",
+          );
+        }}
         onDownloadHtmlZip={(extractImages) => {
           parent.postMessage(
             {
