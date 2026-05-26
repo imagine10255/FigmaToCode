@@ -44,7 +44,8 @@ type PluginUIProps = {
 const DEFAULT_PREVIEW_URL = "http://localhost:4200/";
 const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrlV3";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
-const PREVIEW_WINDOW_WIDTH = 1300;
+const PREVIEW_PANEL_WIDTH = 1050;
+const PREVIEW_WINDOW_WIDTH = 1430;
 const getPreviewWindowHeight = () => {
   if (typeof window === "undefined") {
     return 900;
@@ -284,7 +285,12 @@ export const PluginUI = (props: PluginUIProps) => {
       <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
         <ScrollArea className="min-h-0 flex-1 overflow-hidden">
           {showPreviewFrame ? (
-            <div className="grid h-full min-h-[640px] grid-cols-[360px_minmax(0,1fr)] gap-3 px-3 py-3">
+            <div
+              className="grid h-full min-h-[640px] gap-3 px-3 py-3"
+              style={{
+                gridTemplateColumns: `360px ${PREVIEW_PANEL_WIDTH}px`,
+              }}
+            >
               <div className="min-h-0 overflow-hidden rounded-md border bg-card">
                 <div className="flex h-11 items-center justify-between border-b px-3">
                   <p className="text-sm font-semibold text-foreground">
