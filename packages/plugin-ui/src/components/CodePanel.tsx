@@ -5,14 +5,11 @@ import {
   SelectPreferenceOptions,
 } from "types";
 import { useMemo, useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { coldarkDark as theme } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { CopyButton } from "./CopyButton";
 import EmptyState from "./EmptyState";
 import SettingsGroup from "./SettingsGroup";
 import FrameworkTabs from "./FrameworkTabs";
 import { TailwindSettings } from "./TailwindSettings";
-import { DownloadIcon } from "lucide-react";
+import { DownloadIcon, EyeIcon } from "lucide-react";
 
 interface CodePanelProps {
   code: string;
@@ -25,13 +22,11 @@ interface CodePanelProps {
     value: PluginSettings[keyof PluginSettings],
   ) => void;
   onDownloadHtmlZip?: (extractImages: boolean) => void;
+  onPreviewHtml?: () => void;
 }
 
 const CodePanel = (props: CodePanelProps) => {
-  const [syntaxHovered, setSyntaxHovered] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [extractImages, setExtractImages] = useState(true);
-  const initialLinesToShow = 25;
   const {
     code,
     preferenceOptions,
@@ -40,70 +35,15 @@ const CodePanel = (props: CodePanelProps) => {
     settings,
     onPreferenceChanged,
     onDownloadHtmlZip,
+    onPreviewHtml,
   } = props;
   const isCodeEmpty = code === "";
-
-  // Helper function to add the prefix before every class (or className) in the code.
-  // It finds every occurrence of class="..." or className="..." and, for each class,
-  // prepends the custom prefix.
-  const applyPrefixToClasses = (
-    codeString: string,
-    prefix: string | undefined,
-  ) => {
-    if (!prefix) {
-      return codeString;
-    }
-
-    return codeString.replace(
-      /(class(?:Name)?)="([^"]*)"/g,
-      (match, attr, classes) => {
-        const prefixedClasses = classes
-          .split(/\s+/)
-          .filter(Boolean)
-          .map((cls: string) => prefix + cls)
-          .join(" ");
-        return `${attr}="${prefixedClasses}"`;
-      },
-    );
-  };
-
-  // Function to truncate code to a specific number of lines
-  const truncateCode = (codeString: string, lines: number) => {
-    const codeLines = codeString.split("\n");
-    if (codeLines.length <= lines) {
-      return codeString;
-    }
-    return codeLines.slice(0, lines).join("\n") + "\n...";
-  };
-
-  // If the selected framework is Tailwind and a prefix is provided then transform the code.
-  const prefixedCode =
-    selectedFramework === "Tailwind" &&
-    settings?.customTailwindPrefix?.trim() !== ""
-      ? applyPrefixToClasses(code, settings?.customTailwindPrefix)
-      : code;
-
-  // Memoize the line count calculation to improve performance for large code blocks
-  const lineCount = useMemo(
-    () => prefixedCode.split("\n").length,
-    [prefixedCode],
-  );
-
-  // Determine if code should be truncated
-  const shouldTruncate = !isExpanded && lineCount > initialLinesToShow;
-  const displayedCode = shouldTruncate
-    ? truncateCode(prefixedCode, initialLinesToShow)
-    : prefixedCode;
-  const showMoreButton = lineCount > initialLinesToShow;
-  const showCodeCopyButton = lineCount > 5;
-
-  const handleButtonHover = () => setSyntaxHovered(true);
-  const handleButtonLeave = () => setSyntaxHovered(false);
 
   // Memoized preference groups for better performance
   const {
     essentialPreferences,
     stylingPreferences,
+    visibleStylingPreferences,
     selectableSettingsFiltered,
   } = useMemo(() => {
     // Get preferences for the current framework
@@ -131,6 +71,18 @@ const CodePanel = (props: CodePanelProps) => {
       stylingPreferences: frameworkPreferences.filter((p) =>
         stylingPropertyNames.includes(p.propertyName),
       ),
+      visibleStylingPreferences: frameworkPreferences
+        .filter((p) => stylingPropertyNames.includes(p.propertyName))
+        .map((preference) =>
+          preference.propertyName === "embedImages"
+            ? {
+                ...preference,
+                label: "Export images as files",
+                description:
+                  "Download image assets as files next to the exported HTML instead of keeping Base64 inside the HTML.",
+              }
+            : preference,
+        ),
       selectableSettingsFiltered: selectPreferenceOptions.filter((p) =>
         p.includedLanguages?.includes(selectedFramework),
       ),
@@ -139,6 +91,21 @@ const CodePanel = (props: CodePanelProps) => {
 
   const hasSettingsBeforeStyling =
     essentialPreferences.length > 0 || selectableSettingsFiltered.length > 0;
+  const settingsWithExportImages =
+    settings && selectedFramework === "HTML"
+      ? { ...settings, embedImages: extractImages }
+      : settings;
+  const handleStylingPreferenceChanged = (
+    key: keyof PluginSettings,
+    value: PluginSettings[keyof PluginSettings],
+  ) => {
+    if (key === "embedImages" && selectedFramework === "HTML") {
+      setExtractImages(Boolean(value));
+      return;
+    }
+
+    onPreferenceChanged(key, value);
+  };
 
   return (
     <div className="w-full flex flex-col gap-2 mt-2">
@@ -167,29 +134,24 @@ const CodePanel = (props: CodePanelProps) => {
                 <DownloadIcon size={15} />
               </button>
             )}
-            <CopyButton
-              value={prefixedCode}
-              onMouseEnter={handleButtonHover}
-              onMouseLeave={handleButtonLeave}
-            />
+            {selectedFramework === "HTML" && onPreviewHtml && (
+              <button
+                type="button"
+                onClick={onPreviewHtml}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                aria-label="Preview exported HTML"
+                title="Preview exported HTML"
+              >
+                <EyeIcon size={15} />
+                Preview
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {!isCodeEmpty && (
         <div className="flex flex-col p-3 bg-card border rounded-lg text-sm">
-          {selectedFramework === "HTML" && onDownloadHtmlZip && (
-            <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={extractImages}
-                onChange={(event) => setExtractImages(event.target.checked)}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              Export images as files
-            </label>
-          )}
-
           {/* Essential settings always shown */}
           <SettingsGroup
             title=""
@@ -231,9 +193,9 @@ const CodePanel = (props: CodePanelProps) => {
             <div className={hasSettingsBeforeStyling ? "mt-2" : undefined}>
               <SettingsGroup
                 title="Styling Options"
-                settings={stylingPreferences}
-                selectedSettings={settings}
-                onPreferenceChanged={onPreferenceChanged}
+                settings={visibleStylingPreferences}
+                selectedSettings={settingsWithExportImages}
+                onPreferenceChanged={handleStylingPreferenceChanged}
               >
                 {selectedFramework === "Tailwind" && (
                   <TailwindSettings
@@ -247,68 +209,7 @@ const CodePanel = (props: CodePanelProps) => {
         </div>
       )}
 
-      <div
-        className={`relative rounded-lg ring-green-600 transition-all duration-200 ${
-          syntaxHovered ? "ring-2" : "ring-0"
-        }`}
-      >
-        {isCodeEmpty ? (
-          <EmptyState />
-        ) : (
-          <>
-            {showCodeCopyButton && (
-              <div className="pointer-events-none sticky top-3 z-10 h-0">
-                <CopyButton
-                  value={prefixedCode}
-                  showLabel={false}
-                  onMouseEnter={handleButtonHover}
-                  onMouseLeave={handleButtonLeave}
-                  className="pointer-events-auto absolute right-2 top-2 h-7 w-7 rounded-md bg-neutral-800/90 p-0 text-neutral-200 shadow-sm ring-1 ring-white/10 backdrop-blur-sm hover:bg-neutral-600 hover:text-white hover:ring-white/20 dark:bg-neutral-800/90 dark:hover:bg-neutral-600"
-                />
-              </div>
-            )}
-            <SyntaxHighlighter
-              language={
-                selectedFramework === "HTML" &&
-                settings?.htmlGenerationMode === "styled-components"
-                  ? "jsx"
-                  : selectedFramework === "Flutter"
-                    ? "dart"
-                    : selectedFramework === "SwiftUI"
-                      ? "swift"
-                      : selectedFramework === "Compose"
-                        ? "kotlin"
-                        : "html"
-              }
-              style={theme}
-              customStyle={{
-                fontSize: 12,
-                borderRadius: 8,
-                marginTop: 0,
-                marginBottom: 0,
-                backgroundColor: syntaxHovered ? "#1E2B1A" : "#1B1B1B",
-                transitionProperty: "all",
-                transitionTimingFunction: "ease",
-                transitionDuration: "0.2s",
-              }}
-            >
-              {displayedCode}
-            </SyntaxHighlighter>
-            {showMoreButton && (
-              <div className="flex justify-center dark:bg-[#1B1B1B] border-t dark:border-gray-700">
-                <button
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  className="text-xs w-full flex justify-center py-3 text-blue-500 hover:text-blue-400 transition-colors"
-                  aria-label="Show more code. This could be slow or freeze Figma for a few seconds."
-                  title="Show more code. This could be slow or freeze Figma for a few seconds."
-                >
-                  {isExpanded ? "Show Less" : "Show More"}
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      {isCodeEmpty && <EmptyState />}
     </div>
   );
 };

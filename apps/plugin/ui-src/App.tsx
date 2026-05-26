@@ -11,7 +11,7 @@ import {
   ErrorMessage,
   SettingsChangedMessage,
   Warning,
-  HtmlZipReadyMessage,
+  HtmlZipFile,
 } from "types";
 import { postUISettingsChangingMessage } from "./messaging";
 import copy from "copy-to-clipboard";
@@ -29,6 +29,8 @@ interface AppState {
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
+const HTML_PREVIEW_URL = "https://help.gdg168.com/";
+const HTML_PREVIEW_ORIGIN = "https://help.gdg168.com";
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -38,6 +40,98 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+};
+const getDataUrlExtension = (mimeType: string) => {
+  switch (mimeType.toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/svg+xml":
+      return "svg";
+    case "image/webp":
+      return "webp";
+    case "image/gif":
+      return "gif";
+    case "image/png":
+    default:
+      return "png";
+  }
+};
+const extractDataUrlAssets = (html: string) => {
+  const assets: HtmlZipFile[] = [];
+  let imageIndex = 0;
+  const nextHtml = html.replace(
+    /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g,
+    (_match, mimeType, base64) => {
+      imageIndex += 1;
+      const extension = getDataUrlExtension(mimeType);
+      const path = `assets/image-${imageIndex.toString().padStart(2, "0")}.${extension}`;
+
+      assets.push({
+        path,
+        content: base64,
+        encoding: "base64",
+      });
+
+      return path;
+    },
+  );
+
+  return { html: nextHtml, assets };
+};
+const wrapHtmlDocument = (html: string) => `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+${html}
+</body>
+</html>`;
+const downloadCurrentHtmlZip = (html: string, extractImages: boolean) => {
+  const { html: exportedHtml, assets } = extractImages
+    ? extractDataUrlAssets(html)
+    : { html, assets: [] as HtmlZipFile[] };
+  const files: HtmlZipFile[] = [
+    {
+      path: "index.html",
+      content: wrapHtmlDocument(exportedHtml),
+      encoding: "text",
+    },
+    ...assets,
+  ];
+
+  downloadBlob(createZipBlob(files), "figma-html.zip");
+};
+const openHtmlPreview = (html: string) => {
+  const previewWindow = window.open(HTML_PREVIEW_URL, "_blank");
+  if (!previewWindow) {
+    return;
+  }
+
+  const payload = {
+    type: "figma-to-code-preview",
+    version: 1,
+    sections: [
+      {
+        name: "Figma selection",
+        html,
+        assets: [],
+      },
+    ],
+  };
+  let attempts = 0;
+  const postPayload = () => {
+    attempts += 1;
+    previewWindow.postMessage(payload, HTML_PREVIEW_ORIGIN);
+
+    if (attempts >= 10) {
+      window.clearInterval(timer);
+    }
+  };
+
+  postPayload();
+  const timer = window.setInterval(postPayload, 500);
 };
 const isDarkFigmaBackground = (background: string) => {
   const value = background.trim().toLowerCase();
@@ -131,22 +225,6 @@ export default function App() {
           copy(JSON.stringify(json, null, 2));
           break;
 
-        case "html-zip-ready":
-          const zipMessage = untypedMessage as HtmlZipReadyMessage;
-          downloadBlob(createZipBlob(zipMessage.files), zipMessage.fileName);
-          break;
-
-        case "html-zip-error":
-          const zipErrorMessage = untypedMessage as ErrorMessage;
-          setState((prevState) => ({
-            ...prevState,
-            warnings: [
-              ...(prevState.warnings ?? []),
-              zipErrorMessage.error || "Unable to export HTML zip.",
-            ],
-          }));
-          break;
-
         default:
           break;
       }
@@ -202,15 +280,13 @@ export default function App() {
         colors={state.colors}
         gradients={state.gradients}
         onDownloadHtmlZip={(extractImages) => {
-          parent.postMessage(
-            {
-              pluginMessage: {
-                type: "download-html-zip",
-                extractImages,
-              },
-            },
-            "*",
+          downloadCurrentHtmlZip(
+            state.htmlPreview.content || state.code,
+            extractImages,
           );
+        }}
+        onPreviewHtml={() => {
+          openHtmlPreview(state.htmlPreview.content || state.code);
         }}
       />
     </div>

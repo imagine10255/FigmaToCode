@@ -23,10 +23,18 @@ import {
 } from "types";
 
 let userPluginSettings: PluginSettings;
+const forcedDefaultSettingKeys = new Set<keyof PluginSettings>([
+  "framework",
+  "htmlGenerationMode",
+  "showLayerNames",
+  "useColorVariables",
+  "embedImages",
+  "embedVectors",
+]);
 
 export const defaultPluginSettings: PluginSettings = {
   framework: "HTML",
-  showLayerNames: false,
+  showLayerNames: true,
   useOldPluginVersion2025: false,
   responsiveRoot: false,
   flutterGenerationMode: "snippet",
@@ -36,8 +44,8 @@ export const defaultPluginSettings: PluginSettings = {
   roundTailwindColors: true,
   useColorVariables: true,
   customTailwindPrefix: "",
-  embedImages: false,
-  embedVectors: false,
+  embedImages: true,
+  embedVectors: true,
   htmlGenerationMode: "html",
   tailwindGenerationMode: "jsx",
   baseFontSize: 16,
@@ -225,7 +233,8 @@ const getUserSettings = async () => {
         isKeyOfPluginSettings(key) &&
         key in possiblePluginSrcSettings &&
         typeof possiblePluginSrcSettings[key] ===
-          typeof defaultPluginSettings[key]
+          typeof defaultPluginSettings[key] &&
+        !forcedDefaultSettingKeys.has(key)
       ) {
         validSettings[key] = possiblePluginSrcSettings[key] as any;
       }

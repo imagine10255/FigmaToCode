@@ -1,7 +1,5 @@
-import copy from "copy-to-clipboard";
-import Preview from "./components/Preview";
 import GradientsPanel from "./components/GradientsPanel";
-import ColorsPanel from "./components/ColorsPanel";
+import copy from "copy-to-clipboard";
 import CodePanel from "./components/CodePanel";
 import EmptyState from "./components/EmptyState";
 import About from "./components/About";
@@ -41,9 +39,10 @@ type PluginUIProps = {
   gradients: LinearGradientConversion[];
   isLoading: boolean;
   onDownloadHtmlZip?: (extractImages: boolean) => void;
+  onPreviewHtml?: () => void;
 };
 
-const frameworks: Framework[] = ["HTML", "Tailwind", "Flutter", "SwiftUI"];
+const frameworks: Framework[] = ["HTML"];
 const LOADING_INDICATOR_DELAY_MS = 250;
 
 type FrameworkTabsProps = {
@@ -62,7 +61,7 @@ const FrameworkTabs = ({
   setShowAbout,
 }: FrameworkTabsProps) => {
   return (
-    <div className="grid grid-cols-4 sm:grid-cols-2 md:grid-cols-4 gap-1 grow">
+    <div className="grid grid-cols-1 gap-1 grow">
       {frameworks.map((tab) => (
         <Button
           variant="ghost"
@@ -89,14 +88,6 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showAbout, setShowAbout] = useState(false);
   const [showLoading, setShowLoading] = useState(false);
   const [hasHandledInitialLoad, setHasHandledInitialLoad] = useState(false);
-
-  const [previewExpanded, setPreviewExpanded] = useState(false);
-  const [previewViewMode, setPreviewViewMode] = useState<
-    "desktop" | "mobile" | "precision"
-  >("precision");
-  const [previewBgColor, setPreviewBgColor] = useState<"white" | "black">(
-    "white",
-  );
 
   useEffect(() => {
     if (!props.isLoading) {
@@ -172,18 +163,6 @@ export const PluginUI = (props: PluginUIProps) => {
             </div>
           ) : (
             <div className="flex flex-col items-center px-4 pt-3 pb-2 gap-2 dark:bg-transparent">
-              {props.htmlPreview && (
-                <Preview
-                  htmlPreview={props.htmlPreview}
-                  expanded={previewExpanded}
-                  setExpanded={setPreviewExpanded}
-                  viewMode={previewViewMode}
-                  setViewMode={setPreviewViewMode}
-                  bgColor={previewBgColor}
-                  setBgColor={setPreviewBgColor}
-                />
-              )}
-
               {warnings.length > 0 && <WarningsPanel warnings={warnings} />}
 
               <CodePanel
@@ -194,18 +173,8 @@ export const PluginUI = (props: PluginUIProps) => {
                 settings={props.settings}
                 onPreferenceChanged={props.onPreferenceChanged}
                 onDownloadHtmlZip={props.onDownloadHtmlZip}
+                onPreviewHtml={props.onPreviewHtml}
               />
-
-              {props.colors.length > 0 && (
-                <div className="mt-3 w-full">
-                  <ColorsPanel
-                    colors={props.colors}
-                    onColorClick={(value) => {
-                      copy(value);
-                    }}
-                  />
-                </div>
-              )}
 
               {props.gradients.length > 0 && (
                 <div className="mt-3 w-full">
