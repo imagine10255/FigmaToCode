@@ -45,10 +45,17 @@ type PluginUIProps = {
 };
 
 const frameworks: Framework[] = ["HTML"];
-const DEFAULT_PREVIEW_URL = "https://www.google.com/";
-const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrlV2";
+const DEFAULT_PREVIEW_URL = "http://localhost:4200/";
+const PREVIEW_URL_STORAGE_KEY = "figmaToCodePreviewUrlV3";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
-const PREVIEW_WINDOW_SIZE = { width: 960, height: 720 };
+const PREVIEW_WINDOW_WIDTH = 1300;
+const getPreviewWindowHeight = () => {
+  if (typeof window === "undefined") {
+    return 900;
+  }
+
+  return Math.max(700, Math.floor(window.screen.availHeight));
+};
 
 const getStoredPreviewUrl = () => {
   try {
@@ -165,7 +172,7 @@ export const PluginUI = (props: PluginUIProps) => {
   const openPreviewFrame = () => {
     setShowSettings(false);
     setShowPreviewFrame(true);
-    resizePluginWindow(PREVIEW_WINDOW_SIZE.width, PREVIEW_WINDOW_SIZE.height);
+    resizePluginWindow(PREVIEW_WINDOW_WIDTH, getPreviewWindowHeight());
     props.onPreviewHtml?.();
   };
   const closePreviewFrame = () => {
@@ -259,7 +266,7 @@ export const PluginUI = (props: PluginUIProps) => {
               </div>
             </div>
           ) : showPreviewFrame ? (
-            <div className="flex h-[672px] flex-col gap-2 px-3 py-3">
+            <div className="flex h-full min-h-[640px] flex-col gap-2 px-3 py-3">
               <div className="flex h-8 shrink-0 items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">
