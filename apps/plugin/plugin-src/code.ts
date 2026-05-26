@@ -127,6 +127,82 @@ ${body}
 </html>`;
 };
 
+const formatDownloadTimestamp = () => {
+  const date = new Date();
+  const pad = (value: number) => value.toString().padStart(2, "0");
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
+  )}`;
+};
+
+const escapeHtmlAttribute = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const getRootStartTagMatch = (html: string) =>
+  html.match(/<([a-zA-Z][\w:-]*)(\s[^<>]*)?>/);
+
+const getRootDataLayer = (html: string) => {
+  const rootMatch = getRootStartTagMatch(html);
+  const attributes = rootMatch?.[2] ?? "";
+  const dataLayerMatch = attributes.match(/\sdata-layer=(["'])(.*?)\1/i);
+
+  return dataLayerMatch?.[2]?.trim() || "help";
+};
+
+const applyDataLastUpdateToRoot = (html: string) => {
+  const timestamp = escapeHtmlAttribute(formatDownloadTimestamp());
+
+  return html.replace(
+    /<([a-zA-Z][\w:-]*)(\s[^<>]*)?>/,
+    (match, tagName, rawAttributes = "") => {
+      const attributes = rawAttributes || "";
+
+      if (/\sdata-last-update=(["']).*?\1/i.test(attributes)) {
+        return `<${tagName}${attributes.replace(
+          /\sdata-last-update=(["']).*?\1/i,
+          ` data-last-update="${timestamp}"`,
+        )}>`;
+      }
+
+      return `<${tagName}${attributes} data-last-update="${timestamp}">`;
+    },
+  );
+};
+
+const addRobotoToInlineFontFamilies = (html: string) => {
+  return html.replace(
+    /\sstyle=(["'])(.*?)\1/gi,
+    (_styleAttribute, quote: string, styleValue: string) => {
+      const nextStyleValue = styleValue.replace(
+        /font-family\s*:\s*([^;]+)/gi,
+        (fontFamilyDeclaration, fontFamilyValue: string) => {
+          if (/roboto/i.test(fontFamilyValue)) {
+            return fontFamilyDeclaration;
+          }
+
+          return fontFamilyDeclaration.replace(
+            fontFamilyValue,
+            `${fontFamilyValue.trim()}, Roboto`,
+          );
+        },
+      );
+
+      return ` style=${quote}${nextStyleValue}${quote}`;
+    },
+  );
+};
+
+const prepareHtmlForDownload = (html: string) => {
+  return addRobotoToInlineFontFamilies(applyDataLastUpdateToRoot(html));
+};
+
 const toPreviewRgb = (color: RGB) => ({
   r: Math.round(color.r * 255),
   g: Math.round(color.g * 255),
@@ -207,6 +283,7 @@ const normalizePreviewUrl = (value: string) => {
 type HtmlExportSection = {
   name: string;
   folder: string;
+  fileName: string;
   html: string;
   css?: string;
   assets: HtmlZipFile[];
@@ -245,17 +322,21 @@ const buildHtmlExportSections = async (
       : await nodesToJSON([node], exportSettings);
     const result = await htmlMain(convertedSelection, exportSettings);
     const assets: HtmlZipFile[] = [];
-    const html = extractImages
+    const htmlWithAssets = extractImages
       ? extractDataUrlAssets(result.html, "image", assets)
       : result.html;
     let css = result.css;
     if (css && extractImages) {
       css = extractDataUrlAssets(css, "css-image", assets);
     }
+    const html = prepareHtmlForDownload(htmlWithAssets);
+    const dataLayer = getRootDataLayer(html);
+    const fileName = `${sanitizeFileName(dataLayer, "help")}.html`;
 
     sections.push({
       name: baseName,
       folder,
+      fileName,
       html,
       css,
       assets,
@@ -275,14 +356,20 @@ const buildHtmlZipFiles = async (
 
   for (const section of sections) {
     files.push({
-      path: `${section.folder}/index.html`,
+      path:
+        sections.length === 1
+          ? section.fileName
+          : `${section.folder}/${section.fileName}`,
       content: wrapHtmlDocument(section.name, section.html, section.css),
       encoding: "text",
     });
     files.push(
       ...section.assets.map((asset) => ({
         ...asset,
-        path: `${section.folder}/${asset.path}`,
+        path:
+          sections.length === 1
+            ? asset.path
+            : `${section.folder}/${asset.path}`,
       })),
     );
   }
@@ -290,7 +377,7 @@ const buildHtmlZipFiles = async (
   return {
     fileName:
       selectedNodes.length === 1
-        ? `${sanitizeFileName(selectedNodes[0].name, "figma-html")}.zip`
+        ? `${sections[0]?.fileName.replace(/\.html$/i, "") || "help"}.zip`
         : "figma-sections-html.zip",
     files,
   };
