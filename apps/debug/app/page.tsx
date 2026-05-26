@@ -40,6 +40,16 @@ export default function Web() {
                 colors={[]}
                 gradients={[]}
                 warnings={testWarnings}
+                selectionNodes={[]}
+                activePreviewNodeId={null}
+                isPreviewLoading={false}
+                previewPayload={{
+                  type: "figma-to-code-preview",
+                  version: 1,
+                  selection: [],
+                  sections: [],
+                }}
+                previewRefreshKey={0}
               />
             </div>
           </div>
@@ -63,6 +73,16 @@ export default function Web() {
                 colors={[]}
                 gradients={[]}
                 warnings={testWarnings}
+                selectionNodes={[]}
+                activePreviewNodeId={null}
+                isPreviewLoading={false}
+                previewPayload={{
+                  type: "figma-to-code-preview",
+                  version: 1,
+                  selection: [],
+                  sections: [],
+                }}
+                previewRefreshKey={0}
               />
             </div>
           </div>

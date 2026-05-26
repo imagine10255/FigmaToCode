@@ -1,6 +1,5 @@
 import { tailwindCodeGenTextStyles } from "./../../../packages/backend/src/tailwind/tailwindMain";
 import {
-  run,
   flutterMain,
   tailwindMain,
   swiftuiMain,
@@ -297,56 +296,36 @@ const initSettings = async () => {
   console.log("[DEBUG] initSettings - Initializing plugin settings");
   await getUserSettings();
   postSettingsChanged(userPluginSettings);
-  console.log("[DEBUG] initSettings - Calling safeRun with settings");
-  safeRun(userPluginSettings);
 };
 
-// Used to prevent running from happening again.
-let isLoading = false;
-const safeRun = async (settings: PluginSettings) => {
-  console.log(
-    "[DEBUG] safeRun - Called with isLoading =",
-    isLoading,
-    "selectionCount =",
-    figma.currentPage.selection.length,
-  );
-  if (isLoading === false) {
-    try {
-      isLoading = true;
-      console.log("[DEBUG] safeRun - Starting run execution");
-      await run(settings);
-      console.log("[DEBUG] safeRun - Run execution completed");
-      // hack to make it not immediately set to false when complete. (executes on next frame)
-      setTimeout(() => {
-        console.log("[DEBUG] safeRun - Resetting isLoading to false");
-        isLoading = false;
-      }, 1);
-    } catch (e) {
-      console.log("[DEBUG] safeRun - Error caught in execution");
-      isLoading = false; // Make sure to reset the flag on error
-      if (e && typeof e === "object" && "message" in e) {
-        const error = e as Error;
-        console.log("error: ", error.stack);
-        figma.ui.postMessage({ type: "error", error: error.message });
-      } else {
-        // Handle non-standard errors or unknown error types
-        const errorMessage = String(e);
-        console.log("Unknown error: ", errorMessage);
-        figma.ui.postMessage({
-          type: "error",
-          error: errorMessage || "Unknown error occurred",
-        });
-      }
+const buildHtmlPreviewForNode = async (
+  nodeId: string,
+  settings: PluginSettings,
+) => {
+  const node = await figma.getNodeByIdAsync(nodeId);
 
-      // Send a message to reset the UI state
-      figma.ui.postMessage({ type: "conversion-complete", success: false });
-    }
-  } else {
-    console.log(
-      "[DEBUG] safeRun - Skipping execution because isLoading =",
-      isLoading,
-    );
+  if (!node || !("type" in node)) {
+    throw new Error("Selected frame was not found.");
   }
+
+  const sceneNode = node as SceneNode;
+  const exportSettings: PluginSettings = {
+    ...settings,
+    framework: "HTML",
+    htmlGenerationMode: "html",
+    embedImages: true,
+  };
+  const convertedSelection = settings.useOldPluginVersion2025
+    ? oldConvertNodesToAltNodes([sceneNode], null)
+    : await nodesToJSON([sceneNode], exportSettings);
+  const result = await htmlMain(convertedSelection, exportSettings);
+
+  return {
+    nodeId: sceneNode.id,
+    name: sceneNode.name,
+    html: result.html,
+    css: result.css,
+  };
 };
 
 const standardMode = async () => {
@@ -369,18 +348,13 @@ const standardMode = async () => {
       figma.currentPage.selection.length,
     );
     postSelectionPreviewData();
-    safeRun(userPluginSettings);
   });
 
   // Listen for page changes
   figma.loadAllPagesAsync();
   figma.on("documentchange", () => {
     console.log("[DEBUG] documentchange event triggered");
-    // Node: This was causing an infinite load when you try to export a background image from a group that contains children.
-    // The reason for this is that the code will temporarily hide the children of the group in order to export a clean image
-    // then restores the visibility of the children. This constitutes a document change so it's restarting the whole conversion.
-    // In order to stop this, we disable safeRun() when doing conversions (while isLoading === true).
-    safeRun(userPluginSettings);
+    postSelectionPreviewData();
   });
 
   figma.ui.onmessage = async (msg) => {
@@ -396,7 +370,6 @@ const standardMode = async () => {
       console.log(`[DEBUG] Setting changed: ${key} = ${value}`);
       (userPluginSettings as any)[key] = value;
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
-      safeRun(userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
         const { extractImages } = msg as DownloadHtmlZipMessage;
@@ -421,6 +394,24 @@ const standardMode = async () => {
         height: number;
       };
       figma.ui.resize(width, height);
+    } else if (msg.type === "preview-node") {
+      try {
+        const { nodeId } = msg as { type: "preview-node"; nodeId: string };
+        const preview = await buildHtmlPreviewForNode(
+          nodeId,
+          userPluginSettings,
+        );
+
+        figma.ui.postMessage({
+          type: "preview-node-ready",
+          ...preview,
+        });
+      } catch (error) {
+        figma.ui.postMessage({
+          type: "preview-node-error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     } else if (msg.type === "get-selection-json") {
       console.log("[DEBUG] get-selection-json message received");
 

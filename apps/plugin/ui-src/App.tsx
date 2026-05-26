@@ -11,7 +11,7 @@ import {
   ErrorMessage,
   SettingsChangedMessage,
   Warning,
-  HtmlZipFile,
+  HtmlZipReadyMessage,
   IframePreviewPayload,
   SelectionPreviewDataMessage,
   SelectionPreviewNode,
@@ -30,6 +30,10 @@ interface AppState {
   gradients: LinearGradientConversion[];
   warnings: Warning[];
   selectionPreviewNodes: SelectionPreviewNode[];
+  activePreviewNodeId: string | null;
+  previewHtml: string;
+  previewName: string;
+  isPreviewLoading: boolean;
   previewRefreshKey: number;
 }
 
@@ -43,68 +47,6 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
-};
-const getDataUrlExtension = (mimeType: string) => {
-  switch (mimeType.toLowerCase()) {
-    case "image/jpeg":
-      return "jpg";
-    case "image/svg+xml":
-      return "svg";
-    case "image/webp":
-      return "webp";
-    case "image/gif":
-      return "gif";
-    case "image/png":
-    default:
-      return "png";
-  }
-};
-const extractDataUrlAssets = (html: string) => {
-  const assets: HtmlZipFile[] = [];
-  let imageIndex = 0;
-  const nextHtml = html.replace(
-    /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g,
-    (_match, mimeType, base64) => {
-      imageIndex += 1;
-      const extension = getDataUrlExtension(mimeType);
-      const path = `assets/image-${imageIndex.toString().padStart(2, "0")}.${extension}`;
-
-      assets.push({
-        path,
-        content: base64,
-        encoding: "base64",
-      });
-
-      return path;
-    },
-  );
-
-  return { html: nextHtml, assets };
-};
-const wrapHtmlDocument = (html: string) => `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-</head>
-<body>
-${html}
-</body>
-</html>`;
-const downloadCurrentHtmlZip = (html: string, extractImages: boolean) => {
-  const { html: exportedHtml, assets } = extractImages
-    ? extractDataUrlAssets(html)
-    : { html, assets: [] as HtmlZipFile[] };
-  const files: HtmlZipFile[] = [
-    {
-      path: "index.html",
-      content: wrapHtmlDocument(exportedHtml),
-      encoding: "text",
-    },
-    ...assets,
-  ];
-
-  downloadBlob(createZipBlob(files), "figma-html.zip");
 };
 const isDarkFigmaBackground = (background: string) => {
   const value = background.trim().toLowerCase();
@@ -129,6 +71,10 @@ export default function App() {
     gradients: [],
     warnings: [],
     selectionPreviewNodes: [],
+    activePreviewNodeId: null,
+    previewHtml: "",
+    previewName: "",
+    isPreviewLoading: false,
     previewRefreshKey: 0,
   });
 
@@ -209,6 +155,54 @@ export default function App() {
           }));
           break;
 
+        case "preview-node-ready":
+          setState((prevState) => {
+            const previewMessage = event.data.pluginMessage as {
+              nodeId: string;
+              name: string;
+              html: string;
+              css?: string;
+            };
+
+            return {
+              ...prevState,
+              activePreviewNodeId: previewMessage.nodeId,
+              previewHtml: previewMessage.css
+                ? `<style>\n${previewMessage.css}\n</style>\n${previewMessage.html}`
+                : previewMessage.html,
+              previewName: previewMessage.name,
+              isPreviewLoading: false,
+              previewRefreshKey: prevState.previewRefreshKey + 1,
+            };
+          });
+          break;
+
+        case "preview-node-error":
+          setState((prevState) => ({
+            ...prevState,
+            isPreviewLoading: false,
+            warnings: [
+              ...(prevState.warnings ?? []),
+              `Preview failed: ${event.data.pluginMessage.error}`,
+            ],
+          }));
+          break;
+
+        case "html-zip-ready":
+          const zipMessage = untypedMessage as HtmlZipReadyMessage;
+          downloadBlob(createZipBlob(zipMessage.files), zipMessage.fileName);
+          break;
+
+        case "html-zip-error":
+          setState((prevState) => ({
+            ...prevState,
+            warnings: [
+              ...(prevState.warnings ?? []),
+              `Download failed: ${event.data.pluginMessage.error}`,
+            ],
+          }));
+          break;
+
         default:
           break;
       }
@@ -247,16 +241,15 @@ export default function App() {
   };
 
   const darkMode = isDarkFigmaBackground(figmaColorBgValue);
-  const html = state.htmlPreview.content || state.code;
   const iframePreviewPayload: IframePreviewPayload = {
     type: "figma-to-code-preview",
     version: 1,
     selection: state.selectionPreviewNodes,
-    sections: html
+    sections: state.previewHtml
       ? [
           {
-            name: state.selectionPreviewNodes[0]?.name ?? "Figma selection",
-            html,
+            name: state.previewName || "Figma selection",
+            html: state.previewHtml,
             assets: [],
           },
         ]
@@ -278,15 +271,40 @@ export default function App() {
         settings={state.settings}
         colors={state.colors}
         gradients={state.gradients}
+        selectionNodes={state.selectionPreviewNodes}
+        activePreviewNodeId={state.activePreviewNodeId}
+        isPreviewLoading={state.isPreviewLoading}
         previewPayload={iframePreviewPayload}
         previewRefreshKey={state.previewRefreshKey}
         onDownloadHtmlZip={(extractImages) => {
-          downloadCurrentHtmlZip(html, extractImages);
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "download-html-zip",
+                extractImages,
+              },
+            },
+            "*",
+          );
         }}
-        onPreviewHtml={() => {
+        onPreviewNode={(nodeId) => {
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "preview-node",
+                nodeId,
+              },
+            },
+            "*",
+          );
           setState((prevState) => ({
             ...prevState,
-            previewRefreshKey: prevState.previewRefreshKey + 1,
+            activePreviewNodeId: nodeId,
+            previewHtml: "",
+            previewName:
+              prevState.selectionPreviewNodes.find((node) => node.id === nodeId)
+                ?.name ?? "",
+            isPreviewLoading: true,
           }));
         }}
       />
