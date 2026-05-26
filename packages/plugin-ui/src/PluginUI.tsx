@@ -40,7 +40,7 @@ type PluginUIProps = {
   colors: SolidColorConversion[];
   gradients: LinearGradientConversion[];
   isLoading: boolean;
-  onDownloadHtmlZip?: () => void;
+  onDownloadHtmlZip?: (extractImages: boolean) => void;
 };
 
 const frameworks: Framework[] = ["HTML", "Tailwind", "Flutter", "SwiftUI"];

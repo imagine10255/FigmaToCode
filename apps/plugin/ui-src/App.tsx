@@ -201,9 +201,14 @@ export default function App() {
         settings={state.settings}
         colors={state.colors}
         gradients={state.gradients}
-        onDownloadHtmlZip={() => {
+        onDownloadHtmlZip={(extractImages) => {
           parent.postMessage(
-            { pluginMessage: { type: "download-html-zip" } },
+            {
+              pluginMessage: {
+                type: "download-html-zip",
+                extractImages,
+              },
+            },
             "*",
           );
         }}

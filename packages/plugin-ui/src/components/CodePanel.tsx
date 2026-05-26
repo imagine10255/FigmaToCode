@@ -24,12 +24,13 @@ interface CodePanelProps {
     key: keyof PluginSettings,
     value: PluginSettings[keyof PluginSettings],
   ) => void;
-  onDownloadHtmlZip?: () => void;
+  onDownloadHtmlZip?: (extractImages: boolean) => void;
 }
 
 const CodePanel = (props: CodePanelProps) => {
   const [syntaxHovered, setSyntaxHovered] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [extractImages, setExtractImages] = useState(true);
   const initialLinesToShow = 25;
   const {
     code,
@@ -150,10 +151,18 @@ const CodePanel = (props: CodePanelProps) => {
             {selectedFramework === "HTML" && onDownloadHtmlZip && (
               <button
                 type="button"
-                onClick={onDownloadHtmlZip}
+                onClick={() => onDownloadHtmlZip(extractImages)}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-foreground transition-colors hover:bg-muted"
-                aria-label="Download HTML and image assets as a zip"
-                title="Download HTML and image assets as a zip"
+                aria-label={
+                  extractImages
+                    ? "Download HTML and image assets as a zip"
+                    : "Download HTML with embedded Base64 images as a zip"
+                }
+                title={
+                  extractImages
+                    ? "Download HTML and image assets as a zip"
+                    : "Download HTML with embedded Base64 images as a zip"
+                }
               >
                 <DownloadIcon size={15} />
               </button>
@@ -169,6 +178,18 @@ const CodePanel = (props: CodePanelProps) => {
 
       {!isCodeEmpty && (
         <div className="flex flex-col p-3 bg-card border rounded-lg text-sm">
+          {selectedFramework === "HTML" && onDownloadHtmlZip && (
+            <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={extractImages}
+                onChange={(event) => setExtractImages(event.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Export images as files
+            </label>
+          )}
+
           {/* Essential settings always shown */}
           <SettingsGroup
             title=""

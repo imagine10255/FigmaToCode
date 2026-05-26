@@ -15,7 +15,12 @@ import { flutterCodeGenTextStyles } from "backend/src/flutter/flutterMain";
 import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
 import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
 import { composeCodeGenTextStyles } from "backend/src/compose/composeMain";
-import { HtmlZipFile, PluginSettings, SettingWillChangeMessage } from "types";
+import {
+  DownloadHtmlZipMessage,
+  HtmlZipFile,
+  PluginSettings,
+  SettingWillChangeMessage,
+} from "types";
 
 let userPluginSettings: PluginSettings;
 
@@ -75,7 +80,6 @@ const getDataUrlExtension = (mimeType: string) => {
 
 const extractDataUrlAssets = (
   content: string,
-  assetFolder: string,
   filePrefix: string,
   files: HtmlZipFile[],
 ) => {
@@ -87,7 +91,7 @@ const extractDataUrlAssets = (
     imageIndex += 1;
     const extension = getDataUrlExtension(mimeType);
     const assetName = `${filePrefix}-${imageIndex.toString().padStart(2, "0")}.${extension}`;
-    const assetPath = `${assetFolder}/${assetName}`;
+    const assetPath = `assets/${assetName}`;
 
     files.push({
       path: assetPath,
@@ -113,7 +117,18 @@ ${body}
 </html>`;
 };
 
-const buildHtmlZipFiles = async (settings: PluginSettings) => {
+type HtmlExportSection = {
+  name: string;
+  folder: string;
+  html: string;
+  css?: string;
+  assets: HtmlZipFile[];
+};
+
+const buildHtmlExportSections = async (
+  settings: PluginSettings,
+  extractImages: boolean,
+) => {
   const selectedNodes = figma.currentPage.selection;
 
   if (selectedNodes.length === 0) {
@@ -127,7 +142,7 @@ const buildHtmlZipFiles = async (settings: PluginSettings) => {
     embedImages: true,
   };
 
-  const files: HtmlZipFile[] = [];
+  const sections: HtmlExportSection[] = [];
   const multiExport = selectedNodes.length > 1;
 
   for (const [index, node] of selectedNodes.entries()) {
@@ -142,29 +157,47 @@ const buildHtmlZipFiles = async (settings: PluginSettings) => {
       ? oldConvertNodesToAltNodes([node], null)
       : await nodesToJSON([node], exportSettings);
     const result = await htmlMain(convertedSelection, exportSettings);
-    const htmlAssetFiles: HtmlZipFile[] = [];
-    const cssAssetFiles: HtmlZipFile[] = [];
-    const html = extractDataUrlAssets(
-      result.html,
-      `${folder}/assets`,
-      "image",
-      htmlAssetFiles,
-    );
-    const css = result.css
-      ? extractDataUrlAssets(
-          result.css,
-          `${folder}/assets`,
-          "css-image",
-          cssAssetFiles,
-        )
-      : undefined;
+    const assets: HtmlZipFile[] = [];
+    const html = extractImages
+      ? extractDataUrlAssets(result.html, "image", assets)
+      : result.html;
+    let css = result.css;
+    if (css && extractImages) {
+      css = extractDataUrlAssets(css, "css-image", assets);
+    }
 
+    sections.push({
+      name: baseName,
+      folder,
+      html,
+      css,
+      assets,
+    });
+  }
+
+  return sections;
+};
+
+const buildHtmlZipFiles = async (
+  settings: PluginSettings,
+  extractImages: boolean,
+) => {
+  const selectedNodes = figma.currentPage.selection;
+  const sections = await buildHtmlExportSections(settings, extractImages);
+  const files: HtmlZipFile[] = [];
+
+  for (const section of sections) {
     files.push({
-      path: `${folder}/index.html`,
-      content: wrapHtmlDocument(baseName, html, css),
+      path: `${section.folder}/index.html`,
+      content: wrapHtmlDocument(section.name, section.html, section.css),
       encoding: "text",
     });
-    files.push(...htmlAssetFiles, ...cssAssetFiles);
+    files.push(
+      ...section.assets.map((asset) => ({
+        ...asset,
+        path: `${section.folder}/${asset.path}`,
+      })),
+    );
   }
 
   return {
@@ -309,7 +342,11 @@ const standardMode = async () => {
       safeRun(userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
-        const zipData = await buildHtmlZipFiles(userPluginSettings);
+        const { extractImages } = msg as DownloadHtmlZipMessage;
+        const zipData = await buildHtmlZipFiles(
+          userPluginSettings,
+          extractImages,
+        );
         figma.ui.postMessage({
           type: "html-zip-ready",
           ...zipData,

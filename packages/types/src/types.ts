@@ -83,6 +83,10 @@ export type HtmlZipFile = {
   content: string;
   encoding?: "text" | "base64";
 };
+export type DownloadHtmlZipMessage = Message & {
+  type: "download-html-zip";
+  extractImages: boolean;
+};
 export type HtmlZipReadyMessage = Message & {
   type: "html-zip-ready";
   fileName: string;
