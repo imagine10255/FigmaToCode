@@ -43,7 +43,8 @@ type PluginUIProps = {
   onPreviewNode?: (nodeId: string) => void;
 };
 
-const DEFAULT_PREVIEW_URL = "http://localhost:4200/";
+const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
+const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
@@ -60,6 +61,22 @@ const getTargetOrigin = (url: string) => {
     return new URL(url).origin;
   } catch (_error) {
     return null;
+  }
+};
+
+const getStoredPreviewUrl = () => {
+  try {
+    return window.localStorage.getItem(PREVIEW_URL_STORAGE_KEY);
+  } catch (_error) {
+    return null;
+  }
+};
+
+const setStoredPreviewUrl = (url: string) => {
+  try {
+    window.localStorage.setItem(PREVIEW_URL_STORAGE_KEY, url);
+  } catch (_error) {
+    // clientStorage remains the source of truth when localStorage is blocked.
   }
 };
 
@@ -121,7 +138,8 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [extractImages, setExtractImages] = useState(true);
-  const savedPreviewUrl = props.previewUrl || DEFAULT_PREVIEW_URL;
+  const savedPreviewUrl =
+    props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
   const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
   const [previewUrlError, setPreviewUrlError] = useState("");
 
@@ -226,7 +244,9 @@ export const PluginUI = (props: PluginUIProps) => {
           type="button"
           onClick={() => {
             try {
-              props.onPreviewUrlChanged?.(new URL(draftPreviewUrl).toString());
+              const normalizedPreviewUrl = new URL(draftPreviewUrl).toString();
+              setStoredPreviewUrl(normalizedPreviewUrl);
+              props.onPreviewUrlChanged?.(normalizedPreviewUrl);
             } catch (_error) {
               setPreviewUrlError("Please enter a valid URL.");
               return;

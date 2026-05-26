@@ -24,7 +24,7 @@ import {
 
 let userPluginSettings: PluginSettings;
 const previewUrlStorageKey = "bitstackPreviewUrl";
-const defaultPreviewUrl = "http://localhost:4200/";
+const defaultPreviewUrl = "https://help.gdg168.com/";
 const forcedDefaultSettingKeys = new Set<keyof PluginSettings>([
   "framework",
   "htmlGenerationMode",
@@ -173,19 +173,35 @@ const postSelectionPreviewData = () => {
 };
 
 const postPreviewUrlSetting = async () => {
-  const storedPreviewUrl = await figma.clientStorage.getAsync(
-    previewUrlStorageKey,
-  );
+  const storedPreviewUrl =
+    (await figma.clientStorage.getAsync(previewUrlStorageKey)) ||
+    figma.root.getPluginData(previewUrlStorageKey);
   const previewUrl =
     typeof storedPreviewUrl === "string" &&
     /^https?:\/\//.test(storedPreviewUrl)
       ? storedPreviewUrl
       : defaultPreviewUrl;
 
+  console.log("[preview-url] loaded", {
+    clientStorage: await figma.clientStorage.getAsync(previewUrlStorageKey),
+    rootPluginData: figma.root.getPluginData(previewUrlStorageKey),
+    previewUrl,
+  });
+
   figma.ui.postMessage({
     type: "preview-url-setting",
     previewUrl,
   });
+};
+
+const normalizePreviewUrl = (value: string) => {
+  const trimmed = value.trim();
+
+  if (!/^https?:\/\/[^/\s]+/i.test(trimmed)) {
+    throw new Error("Preview URL must start with http:// or https://.");
+  }
+
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
 };
 
 type HtmlExportSection = {
@@ -418,12 +434,18 @@ const standardMode = async () => {
         type: "save-preview-url";
         previewUrl: string;
       };
-      const normalizedPreviewUrl = new URL(previewUrl).toString();
+      const normalizedPreviewUrl = normalizePreviewUrl(previewUrl);
 
       await figma.clientStorage.setAsync(
         previewUrlStorageKey,
         normalizedPreviewUrl,
       );
+      figma.root.setPluginData(previewUrlStorageKey, normalizedPreviewUrl);
+      console.log("[preview-url] saved", {
+        clientStorage: await figma.clientStorage.getAsync(previewUrlStorageKey),
+        rootPluginData: figma.root.getPluginData(previewUrlStorageKey),
+        previewUrl: normalizedPreviewUrl,
+      });
       figma.ui.postMessage({
         type: "preview-url-setting",
         previewUrl: normalizedPreviewUrl,

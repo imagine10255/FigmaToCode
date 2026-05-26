@@ -39,6 +39,22 @@ interface AppState {
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
+const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
+const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
+const getStoredPreviewUrl = () => {
+  try {
+    return window.localStorage.getItem(PREVIEW_URL_STORAGE_KEY);
+  } catch (_error) {
+    return null;
+  }
+};
+const setStoredPreviewUrl = (url: string) => {
+  try {
+    window.localStorage.setItem(PREVIEW_URL_STORAGE_KEY, url);
+  } catch (_error) {
+    // The main thread also stores this in figma.clientStorage.
+  }
+};
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -75,7 +91,7 @@ export default function App() {
     activePreviewNodeId: null,
     previewHtml: "",
     previewName: "",
-    previewUrl: "http://localhost:4200/",
+    previewUrl: getStoredPreviewUrl() ?? DEFAULT_PREVIEW_URL,
     isPreviewLoading: false,
     previewRefreshKey: 0,
   });
@@ -162,12 +178,38 @@ export default function App() {
           break;
 
         case "preview-url-setting":
-          setState((prevState) => ({
-            ...prevState,
-            previewUrl:
-              (event.data.pluginMessage as { previewUrl?: string })
-                .previewUrl ?? prevState.previewUrl,
-          }));
+          const incomingPreviewUrl = (
+            event.data.pluginMessage as { previewUrl?: string }
+          ).previewUrl;
+          const storedPreviewUrl = getStoredPreviewUrl();
+          const shouldKeepStoredPreviewUrl =
+            incomingPreviewUrl === DEFAULT_PREVIEW_URL &&
+            Boolean(storedPreviewUrl) &&
+            storedPreviewUrl !== DEFAULT_PREVIEW_URL;
+          const nextPreviewUrl =
+            shouldKeepStoredPreviewUrl && storedPreviewUrl
+              ? storedPreviewUrl
+              : incomingPreviewUrl;
+
+          if (nextPreviewUrl) {
+            setState((prevState) => ({
+              ...prevState,
+              previewUrl: nextPreviewUrl,
+            }));
+            setStoredPreviewUrl(nextPreviewUrl);
+          }
+
+          if (shouldKeepStoredPreviewUrl && storedPreviewUrl) {
+            parent.postMessage(
+              {
+                pluginMessage: {
+                  type: "save-preview-url",
+                  previewUrl: storedPreviewUrl,
+                },
+              },
+              "*",
+            );
+          }
           break;
 
         case "preview-node-ready":
@@ -293,6 +335,7 @@ export default function App() {
         previewPayload={iframePreviewPayload}
         previewRefreshKey={state.previewRefreshKey}
         onPreviewUrlChanged={(previewUrl) => {
+          setStoredPreviewUrl(previewUrl);
           setState((prevState) => ({
             ...prevState,
             previewUrl,

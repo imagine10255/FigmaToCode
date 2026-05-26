@@ -1,5 +1,5 @@
 {
-  "name": "bitstack figma to html",
+  "name": "Bitstack - Figma to Html (Multi Download & Preview)",
   "id": "842128343887142055",
   "api": "1.0.0",
   "main": "apps/plugin/dist/code.js",
