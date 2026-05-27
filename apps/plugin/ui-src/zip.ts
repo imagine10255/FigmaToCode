@@ -67,14 +67,27 @@ const getDosDateTime = (date: Date) => {
   return { dosDate, dosTime };
 };
 
-export const createZipBlob = (files: HtmlZipFile[]) => {
+const nextFrame = () =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
+
+export const createZipBlob = async (
+  files: HtmlZipFile[],
+  onProgress?: (current: number, total: number, label: string) => void,
+) => {
   const now = new Date();
   const { dosDate, dosTime } = getDosDateTime(now);
   const localParts: Uint8Array[] = [];
   const centralParts: Uint8Array[] = [];
   let offset = 0;
 
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
+    onProgress?.(index, files.length, `Compressing ${file.path}`);
+    if (index % 4 === 0) {
+      await nextFrame();
+    }
+
     const nameBytes = textEncoder.encode(file.path);
     const contentBytes =
       file.encoding === "base64"
@@ -124,6 +137,9 @@ export const createZipBlob = (files: HtmlZipFile[]) => {
 
     offset += localHeader.length + contentBytes.length;
   }
+
+  onProgress?.(files.length, files.length, "Finalizing zip");
+  await nextFrame();
 
   const centralDirectory = concatBytes(centralParts);
   const endOfCentralDirectory = concatBytes([

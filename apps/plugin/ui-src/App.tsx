@@ -12,6 +12,7 @@ import {
   SettingsChangedMessage,
   Warning,
   HtmlZipReadyMessage,
+  HtmlZipProgressMessage,
   IframePreviewPayload,
   SelectionPreviewDataMessage,
   SelectionPreviewNode,
@@ -35,6 +36,9 @@ interface AppState {
   previewName: string;
   previewUrl: string;
   isPreviewLoading: boolean;
+  isDownloadLoading: boolean;
+  downloadProgress: number;
+  downloadProgressLabel: string;
   previewRefreshKey: number;
 }
 
@@ -93,6 +97,9 @@ export default function App() {
     previewName: "",
     previewUrl: getStoredPreviewUrl() ?? DEFAULT_PREVIEW_URL,
     isPreviewLoading: false,
+    isDownloadLoading: false,
+    downloadProgress: 0,
+    downloadProgressLabel: "",
     previewRefreshKey: 0,
   });
 
@@ -247,12 +254,66 @@ export default function App() {
 
         case "html-zip-ready":
           const zipMessage = untypedMessage as HtmlZipReadyMessage;
-          downloadBlob(createZipBlob(zipMessage.files), zipMessage.fileName);
+          setState((prevState) => ({
+            ...prevState,
+            isDownloadLoading: true,
+            downloadProgress: 0,
+            downloadProgressLabel: "Compressing files...",
+          }));
+          createZipBlob(
+            zipMessage.files,
+            (current, total, label) => {
+              setState((prevState) => ({
+                ...prevState,
+                isDownloadLoading: true,
+                downloadProgress:
+                  total > 0
+                    ? 70 + Math.round((current / total) * 30)
+                    : 70,
+                downloadProgressLabel: label,
+              }));
+            },
+          ).then((blob) => {
+            downloadBlob(blob, zipMessage.fileName);
+            setState((prevState) => ({
+              ...prevState,
+              isDownloadLoading: false,
+              downloadProgress: 100,
+              downloadProgressLabel: "Download ready",
+            }));
+          }).catch((error) => {
+            setState((prevState) => ({
+              ...prevState,
+              isDownloadLoading: false,
+              warnings: [
+                ...(prevState.warnings ?? []),
+                `Compression failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              ],
+            }));
+          });
+          break;
+
+        case "html-zip-progress":
+          const progressMessage = untypedMessage as HtmlZipProgressMessage;
+          setState((prevState) => ({
+            ...prevState,
+            isDownloadLoading: true,
+            downloadProgress:
+              progressMessage.total > 0
+                ? Math.round(
+                    (progressMessage.current / progressMessage.total) * 70,
+                  )
+                : 0,
+            downloadProgressLabel: progressMessage.label,
+          }));
           break;
 
         case "html-zip-error":
           setState((prevState) => ({
             ...prevState,
+            isDownloadLoading: false,
             warnings: [
               ...(prevState.warnings ?? []),
               `Download failed: ${event.data.pluginMessage.error}`,
@@ -331,6 +392,9 @@ export default function App() {
         selectionNodes={state.selectionPreviewNodes}
         activePreviewNodeId={state.activePreviewNodeId}
         isPreviewLoading={state.isPreviewLoading}
+        isDownloadLoading={state.isDownloadLoading}
+        downloadProgress={state.downloadProgress}
+        downloadProgressLabel={state.downloadProgressLabel}
         previewUrl={state.previewUrl}
         previewPayload={iframePreviewPayload}
         previewRefreshKey={state.previewRefreshKey}
@@ -351,6 +415,12 @@ export default function App() {
           );
         }}
         onDownloadHtmlZip={(extractImages) => {
+          setState((prevState) => ({
+            ...prevState,
+            isDownloadLoading: true,
+            downloadProgress: 0,
+            downloadProgressLabel: "Starting export...",
+          }));
           parent.postMessage(
             {
               pluginMessage: {

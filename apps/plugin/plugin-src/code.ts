@@ -16,6 +16,7 @@ import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
 import { composeCodeGenTextStyles } from "backend/src/compose/composeMain";
 import {
   DownloadHtmlZipMessage,
+  HtmlZipProgressMessage,
   HtmlZipFile,
   PluginSettings,
   SelectionPreviewNode,
@@ -72,6 +73,18 @@ const sanitizeFileName = (value: string, fallback: string) => {
   return cleaned || fallback;
 };
 
+const sanitizeAssetFileName = (value: string, fallback: string) => {
+  const cleaned = value
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  return cleaned || fallback;
+};
+
 const getDataUrlExtension = (mimeType: string) => {
   switch (mimeType.toLowerCase()) {
     case "image/jpeg":
@@ -93,23 +106,72 @@ const extractDataUrlAssets = (
   filePrefix: string,
   files: HtmlZipFile[],
 ) => {
-  let imageIndex = 0;
   const dataUrlPattern =
     /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g;
+  const tagPattern = /<([a-zA-Z][\w:-]*)([^<>]*data:image\/[^<>]*)>/g;
+  const usedAssetPaths = new Set(files.map((file) => file.path));
+  const assetPathByDataUrl = new Map<string, string>();
+  const getShortHash = (value: string) => {
+    let hash = 0;
 
-  return content.replace(dataUrlPattern, (_match, mimeType, base64) => {
-    imageIndex += 1;
-    const extension = getDataUrlExtension(mimeType);
-    const assetName = `${filePrefix}-${imageIndex.toString().padStart(2, "0")}.${extension}`;
-    const assetPath = `assets/${assetName}`;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+    }
 
-    files.push({
-      path: assetPath,
-      content: base64,
-      encoding: "base64",
-    });
+    return hash.toString(36).padStart(6, "0").slice(0, 8);
+  };
+  const getDataLayerFromAttributes = (attributes: string) => {
+    return (
+      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() ||
+      filePrefix
+    );
+  };
+  const createAssetPath = (
+    dataLayer: string,
+    extension: string,
+    base64: string,
+  ) => {
+    const stableName = sanitizeAssetFileName(dataLayer, filePrefix);
+    const hash = getShortHash(base64);
+    let assetPath = `assets/${stableName}-${hash}.${extension}`;
+    let duplicateIndex = 2;
 
-    return `assets/${assetName}`;
+    while (usedAssetPaths.has(assetPath)) {
+      assetPath = `assets/${stableName}-${hash}-${duplicateIndex
+        .toString()
+        .padStart(2, "0")}.${extension}`;
+      duplicateIndex += 1;
+    }
+
+    usedAssetPaths.add(assetPath);
+    return assetPath;
+  };
+
+  return content.replace(tagPattern, (tag, tagName, attributes) => {
+    const dataLayer = getDataLayerFromAttributes(attributes);
+    const nextAttributes = attributes.replace(
+      dataUrlPattern,
+      (dataUrl, mimeType, base64) => {
+        const existingAssetPath = assetPathByDataUrl.get(dataUrl);
+        if (existingAssetPath) {
+          return existingAssetPath;
+        }
+
+        const extension = getDataUrlExtension(mimeType);
+        const assetPath = createAssetPath(dataLayer, extension, base64);
+
+        assetPathByDataUrl.set(dataUrl, assetPath);
+        files.push({
+          path: assetPath,
+          content: base64,
+          encoding: "base64",
+        });
+
+        return assetPath;
+      },
+    );
+
+    return `<${tagName}${nextAttributes}>`;
   });
 };
 
@@ -136,6 +198,17 @@ const formatDownloadTimestamp = () => {
   )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
     date.getSeconds(),
   )}`;
+};
+
+const formatZipTimestamp = () => {
+  const date = new Date();
+  const pad = (value: number) => value.toString().padStart(2, "0");
+
+  return `${date.getFullYear().toString().slice(-2)}${pad(
+    date.getMonth() + 1,
+  )}${pad(date.getDate())}${pad(date.getHours())}${pad(
+    date.getMinutes(),
+  )}${pad(date.getSeconds())}`;
 };
 
 const escapeHtmlAttribute = (value: string) =>
@@ -289,6 +362,63 @@ type HtmlExportSection = {
   assets: HtmlZipFile[];
 };
 
+const postHtmlZipProgress = (
+  current: number,
+  total: number,
+  label: string,
+) => {
+  figma.ui.postMessage({
+    type: "html-zip-progress",
+    current,
+    total,
+    label,
+  } as HtmlZipProgressMessage);
+};
+
+const getUniqueFolderName = (
+  baseName: string,
+  usedFolderNames: Map<string, number>,
+) => {
+  const usedCount = usedFolderNames.get(baseName) ?? 0;
+  usedFolderNames.set(baseName, usedCount + 1);
+
+  return usedCount === 0
+    ? baseName
+    : `${baseName}-${(usedCount + 1).toString().padStart(2, "0")}`;
+};
+
+const getNumericNamePrefixes = (nodes: readonly SceneNode[]) => {
+  const prefixes: string[] = [];
+  const seen = new Set<string>();
+
+  for (const node of nodes) {
+    const prefix = node.name.match(/^(\d+)(?=[-_]|$)/)?.[1] ?? "";
+    if (prefix && !seen.has(prefix)) {
+      seen.add(prefix);
+      prefixes.push(prefix);
+    }
+  }
+
+  return prefixes;
+};
+
+const getZipFileName = (
+  selectedNodes: readonly SceneNode[],
+  sections: HtmlExportSection[],
+) => {
+  if (selectedNodes.length === 1) {
+    return `${sections[0]?.fileName.replace(/\.html$/i, "") || "help"}.zip`;
+  }
+
+  const numericPrefixes = getNumericNamePrefixes(selectedNodes);
+  const baseName =
+    numericPrefixes.length > 0
+      ? sanitizeFileName(numericPrefixes.join("_"), "figma-sections")
+    : "figma-sections";
+
+  return `${baseName}-${formatZipTimestamp()}.zip`;
+};
+
 const buildHtmlExportSections = async (
   settings: PluginSettings,
   extractImages: boolean,
@@ -308,14 +438,20 @@ const buildHtmlExportSections = async (
 
   const sections: HtmlExportSection[] = [];
   const multiExport = selectedNodes.length > 1;
+  const usedFolderNames = new Map<string, number>();
 
   for (const [index, node] of selectedNodes.entries()) {
+    postHtmlZipProgress(
+      index,
+      selectedNodes.length,
+      `Preparing ${node.name || `section ${index + 1}`}...`,
+    );
     const baseName = sanitizeFileName(
       node.name,
       `section-${(index + 1).toString().padStart(2, "0")}`,
     );
     const folder = multiExport
-      ? `${(index + 1).toString().padStart(2, "0")}-${baseName}`
+      ? getUniqueFolderName(baseName, usedFolderNames)
       : baseName;
     const convertedSelection = settings.useOldPluginVersion2025
       ? oldConvertNodesToAltNodes([node], null)
@@ -341,6 +477,11 @@ const buildHtmlExportSections = async (
       css,
       assets,
     });
+    postHtmlZipProgress(
+      index + 1,
+      selectedNodes.length,
+      `Prepared ${node.name || `section ${index + 1}`}`,
+    );
   }
 
   return sections;
@@ -351,6 +492,7 @@ const buildHtmlZipFiles = async (
   extractImages: boolean,
 ) => {
   const selectedNodes = figma.currentPage.selection;
+  postHtmlZipProgress(0, selectedNodes.length, "Starting export...");
   const sections = await buildHtmlExportSections(settings, extractImages);
   const files: HtmlZipFile[] = [];
 
@@ -375,10 +517,7 @@ const buildHtmlZipFiles = async (
   }
 
   return {
-    fileName:
-      selectedNodes.length === 1
-        ? `${sections[0]?.fileName.replace(/\.html$/i, "") || "help"}.zip`
-        : "figma-sections-html.zip",
+    fileName: getZipFileName(selectedNodes, sections),
     files,
   };
 };

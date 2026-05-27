@@ -35,6 +35,9 @@ type PluginUIProps = {
   selectionNodes: SelectionPreviewNode[];
   activePreviewNodeId: string | null;
   isPreviewLoading: boolean;
+  isDownloadLoading: boolean;
+  downloadProgress: number;
+  downloadProgressLabel: string;
   previewUrl: string;
   previewPayload: IframePreviewPayload;
   previewRefreshKey: number;
@@ -294,7 +297,33 @@ export const PluginUI = (props: PluginUIProps) => {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
+      <div className="relative flex flex-col h-full overflow-hidden bg-background text-foreground">
+        {props.isDownloadLoading && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/85 px-6 backdrop-blur-sm">
+            <div className="w-full max-w-[320px] rounded-md border bg-card p-4 shadow-lg">
+              <p className="text-sm font-semibold text-foreground">
+                Preparing download
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {props.downloadProgressLabel || "Packaging files..."}
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{
+                    width: `${Math.max(
+                      3,
+                      Math.min(100, props.downloadProgress || 0),
+                    )}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-2 text-right text-xs text-muted-foreground">
+                {Math.min(100, Math.max(0, props.downloadProgress || 0))}%
+              </p>
+            </div>
+          </div>
+        )}
         <ScrollArea className="min-h-0 flex-1 overflow-hidden">
           {showPreviewFrame ? (
             <div

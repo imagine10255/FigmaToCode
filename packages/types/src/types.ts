@@ -92,6 +92,12 @@ export type HtmlZipReadyMessage = Message & {
   fileName: string;
   files: HtmlZipFile[];
 };
+export type HtmlZipProgressMessage = Message & {
+  type: "html-zip-progress";
+  current: number;
+  total: number;
+  label: string;
+};
 export type PreviewRgb = {
   r: number;
   g: number;
