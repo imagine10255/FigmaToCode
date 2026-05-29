@@ -17,6 +17,7 @@ import React from "react";
 import { Button } from "./components/ui/button";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { pluginUiConfig } from "./pluginUiConfig";
 
 type PluginUIProps = {
   code: string;
@@ -43,6 +44,7 @@ type PluginUIProps = {
   previewRefreshKey: number;
   onPreviewUrlChanged?: (url: string) => void;
   onDownloadHtmlZip?: (extractImages: boolean) => void;
+  onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
   onPreviewNode?: (nodeId: string) => void;
 };
 
@@ -86,10 +88,14 @@ const setStoredPreviewUrl = (url: string) => {
 const SelectionList = ({
   nodes,
   activePreviewNodeId,
+  extractImages,
+  onDownloadNode,
   onPreviewNode,
 }: {
   nodes: SelectionPreviewNode[];
   activePreviewNodeId: string | null;
+  extractImages: boolean;
+  onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
   onPreviewNode?: (nodeId: string) => void;
 }) => {
   if (nodes.length === 0) {
@@ -106,15 +112,22 @@ const SelectionList = ({
         const isActive = node.id === activePreviewNodeId;
 
         return (
-          <button
-            type="button"
+          <div
             key={node.id}
             onClick={() => onPreviewNode?.(node.id)}
-            className={`grid min-h-[54px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors ${
+            className={`group grid min-h-[54px] w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors ${
               isActive
                 ? "border-primary bg-primary/10"
                 : "border-transparent bg-muted/70 hover:bg-muted"
             }`}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onPreviewNode?.(node.id);
+              }
+            }}
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-foreground">
@@ -126,10 +139,24 @@ const SelectionList = ({
                 </p>
               )}
             </div>
-            <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {node.type}
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {node.type}
+              </span>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-colors hover:border-primary/50 hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDownloadNode?.(node.id, extractImages);
+                }}
+                aria-label={`Download ${node.name}`}
+                title="Download"
+              >
+                <DownloadIcon size={21} strokeWidth={2.25} />
+              </button>
             </span>
-          </button>
+          </div>
         );
       })}
     </div>
@@ -140,7 +167,7 @@ export const PluginUI = (props: PluginUIProps) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
-  const [extractImages, setExtractImages] = useState(true);
+  const [extractImages, setExtractImages] = useState(false);
   const savedPreviewUrl =
     props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
   const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
@@ -281,17 +308,19 @@ export const PluginUI = (props: PluginUIProps) => {
           {!compact && "Download"}
         </button>
       )}
-      <button
-        type="button"
-        onClick={openSettings}
-        className={`inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-foreground transition-colors hover:bg-muted ${
-          showSettings ? "border-primary text-primary" : ""
-        }`}
-        aria-label="Preview settings"
-        title="Preview settings"
-      >
-        <SettingsIcon size={15} />
-      </button>
+      {pluginUiConfig.showPreviewSettingsButton && (
+        <button
+          type="button"
+          onClick={openSettings}
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-foreground transition-colors hover:bg-muted ${
+            showSettings ? "border-primary text-primary" : ""
+          }`}
+          aria-label="Preview settings"
+          title="Preview settings"
+        >
+          <SettingsIcon size={15} />
+        </button>
+      )}
     </div>
   );
 
@@ -343,26 +372,32 @@ export const PluginUI = (props: PluginUIProps) => {
                   {renderSelectionHeaderActions(true)}
                 </div>
                 <div className="flex h-[calc(100%-44px)] flex-col gap-2 overflow-auto p-2">
-                  {showSettings && settingsPanel}
+                  {pluginUiConfig.showPreviewSettingsButton &&
+                    showSettings &&
+                    settingsPanel}
                   <SelectionList
                     nodes={selectionNodes}
                     activePreviewNodeId={props.activePreviewNodeId}
+                    extractImages={extractImages}
+                    onDownloadNode={props.onDownloadNode}
                     onPreviewNode={handlePreviewNode}
                   />
                 </div>
               </div>
 
               <div className="flex min-h-0 flex-col gap-2">
-                <div className="flex h-8 shrink-0 items-center justify-between gap-2">
-                  <div className="min-w-0">
+                <div className="flex h-11 shrink-0 items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-col justify-center">
                     <p className="truncate text-sm font-semibold text-foreground">
                       Preview
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {props.isPreviewLoading
-                        ? "Generating HTML..."
-                        : savedPreviewUrl}
-                    </p>
+                    {pluginUiConfig.showPreviewUrlBar && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {props.isPreviewLoading
+                          ? "Generating HTML..."
+                          : savedPreviewUrl}
+                      </p>
+                    )}
                   </div>
                   <Button
                     variant="ghost"
@@ -412,7 +447,9 @@ export const PluginUI = (props: PluginUIProps) => {
                 {renderSelectionHeaderActions()}
               </div>
 
-              {showSettings && settingsPanel}
+              {pluginUiConfig.showPreviewSettingsButton &&
+                showSettings &&
+                settingsPanel}
 
               {selectionNodes.length > 0 && (
                 <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
@@ -428,6 +465,8 @@ export const PluginUI = (props: PluginUIProps) => {
               <SelectionList
                 nodes={selectionNodes}
                 activePreviewNodeId={props.activePreviewNodeId}
+                extractImages={extractImages}
+                onDownloadNode={props.onDownloadNode}
                 onPreviewNode={handlePreviewNode}
               />
 

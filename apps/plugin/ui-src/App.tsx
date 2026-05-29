@@ -12,6 +12,7 @@ import {
   SettingsChangedMessage,
   Warning,
   HtmlZipReadyMessage,
+  HtmlFileReadyMessage,
   HtmlZipProgressMessage,
   IframePreviewPayload,
   SelectionPreviewDataMessage,
@@ -295,6 +296,22 @@ export default function App() {
           });
           break;
 
+        case "html-file-ready":
+          const htmlMessage = untypedMessage as HtmlFileReadyMessage;
+          downloadBlob(
+            new Blob([htmlMessage.content], {
+              type: "text/html;charset=utf-8",
+            }),
+            htmlMessage.fileName,
+          );
+          setState((prevState) => ({
+            ...prevState,
+            isDownloadLoading: false,
+            downloadProgress: 100,
+            downloadProgressLabel: "Download ready",
+          }));
+          break;
+
         case "html-zip-progress":
           const progressMessage = untypedMessage as HtmlZipProgressMessage;
           setState((prevState) => ({
@@ -426,6 +443,24 @@ export default function App() {
               pluginMessage: {
                 type: "download-html-zip",
                 extractImages,
+              },
+            },
+            "*",
+          );
+        }}
+        onDownloadNode={(nodeId, extractImages) => {
+          setState((prevState) => ({
+            ...prevState,
+            isDownloadLoading: true,
+            downloadProgress: 0,
+            downloadProgressLabel: "Starting export...",
+          }));
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "download-html-zip",
+                extractImages,
+                nodeId,
               },
             },
             "*",

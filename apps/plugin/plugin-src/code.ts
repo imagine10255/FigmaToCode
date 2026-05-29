@@ -133,11 +133,11 @@ const extractDataUrlAssets = (
   ) => {
     const stableName = sanitizeAssetFileName(dataLayer, filePrefix);
     const hash = getShortHash(base64);
-    let assetPath = `assets/${stableName}-${hash}.${extension}`;
+    let assetPath = `_assets/${stableName}-${hash}.${extension}`;
     let duplicateIndex = 2;
 
     while (usedAssetPaths.has(assetPath)) {
-      assetPath = `assets/${stableName}-${hash}-${duplicateIndex
+      assetPath = `_assets/${stableName}-${hash}-${duplicateIndex
         .toString()
         .padStart(2, "0")}.${extension}`;
       duplicateIndex += 1;
@@ -362,6 +362,16 @@ type HtmlExportSection = {
   assets: HtmlZipFile[];
 };
 
+const getSceneNodeById = async (nodeId: string) => {
+  const node = await figma.getNodeByIdAsync(nodeId);
+
+  if (!node || !("type" in node) || !("visible" in node)) {
+    throw new Error("Selected frame was not found.");
+  }
+
+  return node as SceneNode;
+};
+
 const postHtmlZipProgress = (
   current: number,
   total: number,
@@ -419,11 +429,37 @@ const getZipFileName = (
   return `${baseName}-${formatZipTimestamp()}.zip`;
 };
 
+const getUniqueFileName = (fileName: string, usedFileNames: Set<string>) => {
+  if (!usedFileNames.has(fileName)) {
+    usedFileNames.add(fileName);
+    return fileName;
+  }
+
+  const extensionMatch = fileName.match(/(\.[^.]+)$/);
+  const extension = extensionMatch?.[1] ?? "";
+  const baseName = extension ? fileName.slice(0, -extension.length) : fileName;
+  let duplicateIndex = 2;
+  let nextFileName = `${baseName}-${duplicateIndex
+    .toString()
+    .padStart(2, "0")}${extension}`;
+
+  while (usedFileNames.has(nextFileName)) {
+    duplicateIndex += 1;
+    nextFileName = `${baseName}-${duplicateIndex
+      .toString()
+      .padStart(2, "0")}${extension}`;
+  }
+
+  usedFileNames.add(nextFileName);
+  return nextFileName;
+};
+
 const buildHtmlExportSections = async (
   settings: PluginSettings,
   extractImages: boolean,
+  nodes?: readonly SceneNode[],
 ) => {
-  const selectedNodes = figma.currentPage.selection;
+  const selectedNodes = nodes ?? figma.currentPage.selection;
 
   if (selectedNodes.length === 0) {
     throw new Error("Please select at least one section or frame.");
@@ -487,36 +523,63 @@ const buildHtmlExportSections = async (
   return sections;
 };
 
-const buildHtmlZipFiles = async (
+const buildHtmlDownload = async (
   settings: PluginSettings,
   extractImages: boolean,
+  nodeId?: string,
 ) => {
-  const selectedNodes = figma.currentPage.selection;
+  const selectedNodes = nodeId
+    ? [await getSceneNodeById(nodeId)]
+    : figma.currentPage.selection;
   postHtmlZipProgress(0, selectedNodes.length, "Starting export...");
-  const sections = await buildHtmlExportSections(settings, extractImages);
+  const sections = await buildHtmlExportSections(
+    settings,
+    extractImages,
+    selectedNodes,
+  );
+
+  if (!extractImages && sections.length === 1) {
+    const section = sections[0];
+
+    return {
+      type: "html-file-ready" as const,
+      fileName: section.fileName,
+      content: wrapHtmlDocument(section.name, section.html, section.css),
+    };
+  }
+
   const files: HtmlZipFile[] = [];
+  const usedFileNames = new Set<string>();
 
   for (const section of sections) {
+    const htmlFileName = extractImages
+      ? section.fileName
+      : getUniqueFileName(section.fileName, usedFileNames);
+
     files.push({
       path:
-        sections.length === 1
-          ? section.fileName
-          : `${section.folder}/${section.fileName}`,
+        extractImages && sections.length > 1
+          ? `${section.folder}/${htmlFileName}`
+          : htmlFileName,
       content: wrapHtmlDocument(section.name, section.html, section.css),
       encoding: "text",
     });
-    files.push(
-      ...section.assets.map((asset) => ({
-        ...asset,
-        path:
-          sections.length === 1
-            ? asset.path
-            : `${section.folder}/${asset.path}`,
-      })),
-    );
+
+    if (extractImages) {
+      files.push(
+        ...section.assets.map((asset) => ({
+          ...asset,
+          path:
+            sections.length === 1
+              ? asset.path
+              : `${section.folder}/${asset.path}`,
+        })),
+      );
+    }
   }
 
   return {
+    type: "html-zip-ready" as const,
     fileName: getZipFileName(selectedNodes, sections),
     files,
   };
@@ -633,15 +696,13 @@ const standardMode = async () => {
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
-        const { extractImages } = msg as DownloadHtmlZipMessage;
-        const zipData = await buildHtmlZipFiles(
+        const { extractImages, nodeId } = msg as DownloadHtmlZipMessage;
+        const downloadData = await buildHtmlDownload(
           userPluginSettings,
           extractImages,
+          nodeId,
         );
-        figma.ui.postMessage({
-          type: "html-zip-ready",
-          ...zipData,
-        });
+        figma.ui.postMessage(downloadData);
       } catch (error) {
         figma.ui.postMessage({
           type: "html-zip-error",

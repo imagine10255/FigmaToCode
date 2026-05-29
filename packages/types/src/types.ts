@@ -86,11 +86,17 @@ export type HtmlZipFile = {
 export type DownloadHtmlZipMessage = Message & {
   type: "download-html-zip";
   extractImages: boolean;
+  nodeId?: string;
 };
 export type HtmlZipReadyMessage = Message & {
   type: "html-zip-ready";
   fileName: string;
   files: HtmlZipFile[];
+};
+export type HtmlFileReadyMessage = Message & {
+  type: "html-file-ready";
+  fileName: string;
+  content: string;
 };
 export type HtmlZipProgressMessage = Message & {
   type: "html-zip-progress";
