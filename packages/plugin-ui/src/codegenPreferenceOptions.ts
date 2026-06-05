@@ -14,7 +14,7 @@ export const preferenceOptions: LocalCodegenPreferenceOptions[] = [
     propertyName: "showLayerNames",
     label: "Layer names",
     description: "Include Figma layer names in classes.",
-    isDefault: false,
+    isDefault: true,
     includedLanguages: ["HTML", "Tailwind"],
   },
   {
@@ -23,7 +23,7 @@ export const preferenceOptions: LocalCodegenPreferenceOptions[] = [
     label: "Round values",
     description:
       "Round pixel values to nearest Tailwind sizes (within a 15% range).",
-    isDefault: false,
+    isDefault: true,
     includedLanguages: ["Tailwind"],
   },
   {
@@ -31,7 +31,7 @@ export const preferenceOptions: LocalCodegenPreferenceOptions[] = [
     propertyName: "roundTailwindColors",
     label: "Round colors",
     description: "Round Figma color values to nearest Tailwind colors.",
-    isDefault: false,
+    isDefault: true,
     includedLanguages: ["Tailwind"],
   },
   {
@@ -49,7 +49,7 @@ export const preferenceOptions: LocalCodegenPreferenceOptions[] = [
     label: "Embed Images",
     description:
       "Convert Figma images to Base64 and embed them in the code. This may be slow. If there are too many images, it could freeze Figma.",
-    isDefault: false,
+    isDefault: true,
     includedLanguages: ["HTML"],
   },
   {
@@ -58,7 +58,7 @@ export const preferenceOptions: LocalCodegenPreferenceOptions[] = [
     label: "Embed Vectors",
     description:
       "Enable this to convert vector shapes to SVGs and embed them in the design. This can be a slow operation. If unchecked, shapes will be converted into rectangles.",
-    isDefault: false,
+    isDefault: true,
     includedLanguages: ["HTML", "Tailwind"],
   },
 ];
@@ -68,12 +68,7 @@ export const selectPreferenceOptions: SelectPreferenceOptions[] = [
     itemType: "select",
     propertyName: "htmlGenerationMode",
     label: "Mode",
-    options: [
-      { label: "HTML", value: "html" },
-      { label: "React (JSX)", value: "jsx" },
-      { label: "Svelte", value: "svelte" },
-      { label: "styled-components", value: "styled-components" },
-    ],
+    options: [{ label: "HTML", value: "html" }],
     includedLanguages: ["HTML"],
   },
   {

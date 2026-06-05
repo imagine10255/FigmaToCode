@@ -19,7 +19,7 @@ export interface TailwindSettings extends HTMLSettings {
   useTailwind4: boolean;
   thresholdPercent: number;
   baseFontFamily: string;
-  fontFamilyCustomConfig: Record<string, string[]>
+  fontFamilyCustomConfig: Record<string, string[]>;
 }
 export interface FlutterSettings {
   flutterGenerationMode: "fullApp" | "stateless" | "snippet";
@@ -31,7 +31,8 @@ export interface ComposeSettings {
   composeGenerationMode: "snippet" | "composable" | "screen";
 }
 export interface PluginSettings
-  extends HTMLSettings,
+  extends
+    HTMLSettings,
     TailwindSettings,
     FlutterSettings,
     SwiftUISettings,
@@ -76,6 +77,60 @@ export type SettingsChangedMessage = Message & {
 export type ErrorMessage = Message & {
   type: "error";
   error: string;
+};
+export type HtmlZipFile = {
+  path: string;
+  content: string;
+  encoding?: "text" | "base64";
+};
+export type DownloadHtmlZipMessage = Message & {
+  type: "download-html-zip";
+  extractImages: boolean;
+  nodeId?: string;
+};
+export type HtmlZipReadyMessage = Message & {
+  type: "html-zip-ready";
+  fileName: string;
+  files: HtmlZipFile[];
+};
+export type HtmlFileReadyMessage = Message & {
+  type: "html-file-ready";
+  fileName: string;
+  content: string;
+};
+export type HtmlZipProgressMessage = Message & {
+  type: "html-zip-progress";
+  current: number;
+  total: number;
+  label: string;
+};
+export type PreviewRgb = {
+  r: number;
+  g: number;
+  b: number;
+};
+export type SelectionPreviewNode = {
+  id: string;
+  name: string;
+  type: string;
+  width: number | null;
+  height: number | null;
+  fill: PreviewRgb | null;
+};
+export type SelectionPreviewDataMessage = Message & {
+  type: "selection-preview-data";
+  nodes: SelectionPreviewNode[];
+};
+export type IframePreviewSection = {
+  name: string;
+  html: string;
+  assets: HtmlZipFile[];
+};
+export type IframePreviewPayload = {
+  type: "figma-to-code-preview";
+  version: 1;
+  selection: SelectionPreviewNode[];
+  sections: IframePreviewSection[];
 };
 
 // Nodes

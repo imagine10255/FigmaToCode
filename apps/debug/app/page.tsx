@@ -40,6 +40,20 @@ export default function Web() {
                 colors={[]}
                 gradients={[]}
                 warnings={testWarnings}
+                selectionNodes={[]}
+                activePreviewNodeId={null}
+                isPreviewLoading={false}
+                isDownloadLoading={false}
+                downloadProgress={0}
+                downloadProgressLabel=""
+                previewUrl="http://localhost:4200/"
+                previewPayload={{
+                  type: "figma-to-code-preview",
+                  version: 1,
+                  selection: [],
+                  sections: [],
+                }}
+                previewRefreshKey={0}
               />
             </div>
           </div>
@@ -63,6 +77,20 @@ export default function Web() {
                 colors={[]}
                 gradients={[]}
                 warnings={testWarnings}
+                selectionNodes={[]}
+                activePreviewNodeId={null}
+                isPreviewLoading={false}
+                isDownloadLoading={false}
+                downloadProgress={0}
+                downloadProgressLabel=""
+                previewUrl="http://localhost:4200/"
+                previewPayload={{
+                  type: "figma-to-code-preview",
+                  version: 1,
+                  selection: [],
+                  sections: [],
+                }}
+                previewRefreshKey={0}
               />
             </div>
           </div>

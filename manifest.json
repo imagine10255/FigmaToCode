@@ -1,6 +1,6 @@
 {
-  "name": "Figma to Code [HTML, Tailwind, Flutter, SwiftUI]",
-  "id": "842128343887142055",
+  "name": "Bitstack - Figma to Html (Multi Download & Preview)",
+  "id": "1641120331962116227",
   "api": "1.0.0",
   "main": "apps/plugin/dist/code.js",
   "ui": "apps/plugin/dist/index.html",
@@ -9,7 +9,14 @@
   "permissions": [],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["none"]
+    "allowedDomains": [
+      "https://help.gdg168.com",
+      "https://www.google.com"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:3000/",
+      "http://localhost:4200/"
+    ]
   },
   "codegenLanguages": [
     { "label": "HTML", "value": "html" },
