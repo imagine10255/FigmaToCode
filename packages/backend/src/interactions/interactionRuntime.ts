@@ -61,6 +61,12 @@ export const interactionRuntimeScript = `
   window.__figmaInteractionState = state;
   window.__figmaInteractionDiagnostics = diagnostics;
 
+  document.addEventListener("dragstart", function (event) {
+    if (event.target && event.target.closest && event.target.closest("[data-fig-id]")) {
+      event.preventDefault();
+    }
+  });
+
   if (!overlayRoot) {
     overlayRoot = document.createElement("div");
     overlayRoot.setAttribute("data-fig-overlay-root", "");
@@ -534,6 +540,77 @@ export const interactionRuntimeScript = `
     return null;
   }
 
+  function getChangeActions(reaction) {
+    return (reaction.actions || []).filter(function (action) {
+      return action && action.type === "NODE" && action.navigation === "CHANGE_TO" && action.destinationId;
+    });
+  }
+
+  function isNodeDescendantOf(nodeId, ancestorId) {
+    var current = nodeById.get(nodeId);
+    while (current) {
+      if (current.id === ancestorId || current.parentId === ancestorId) return true;
+      current = current.parentId ? nodeById.get(current.parentId) : null;
+    }
+    return false;
+  }
+
+  function inferNodeDirection(node, target) {
+    var name = ((node && node.name) || "").toLowerCase();
+    if (name.indexOf("left") >= 0 || name.indexOf("prev") >= 0 || name.indexOf("back") >= 0) {
+      return "backward";
+    }
+    if (name.indexOf("right") >= 0 || name.indexOf("next") >= 0) {
+      return "forward";
+    }
+
+    if (node && typeof node.x === "number" && typeof node.width === "number") {
+      var targetWidth = target.getBoundingClientRect().width || parsePixelValue(target.style.width) || 0;
+      if (targetWidth > 0 && node.x + node.width / 2 < targetWidth / 2) {
+        return "backward";
+      }
+    }
+
+    return "forward";
+  }
+
+  function getDirectionalChangeAction(reaction, deltaX) {
+    var desiredDirection = deltaX < 0 ? "forward" : "backward";
+    var target = findChangeTarget(reaction.sourceId);
+    var currentRootId = target && (target.getAttribute("data-fig-current-variant-id") || target.getAttribute("data-fig-id"));
+    var fallbackAction = getPrimaryChangeAction(reaction);
+
+    if (!target || !currentRootId) {
+      return fallbackAction;
+    }
+
+    for (var reactionIndex = 0; reactionIndex < (model.reactions || []).length; reactionIndex += 1) {
+      var candidateReaction = model.reactions[reactionIndex];
+      if (!candidateReaction.trigger || (candidateReaction.trigger.type !== "ON_CLICK" && candidateReaction.trigger.type !== "ON_PRESS")) {
+        continue;
+      }
+      if (!isNodeDescendantOf(candidateReaction.sourceId, currentRootId)) {
+        continue;
+      }
+
+      var candidateNode = nodeById.get(candidateReaction.sourceId);
+      if (inferNodeDirection(candidateNode, target) !== desiredDirection) {
+        continue;
+      }
+
+      var actions = getChangeActions(candidateReaction);
+      if (actions.length > 0) {
+        return actions[0];
+      }
+    }
+
+    if (desiredDirection === "forward") {
+      return fallbackAction;
+    }
+
+    return null;
+  }
+
   function hasClickReaction(sourceId) {
     return (model.reactions || []).some(function (reaction) {
       return reaction.sourceId === sourceId && reaction.trigger && (reaction.trigger.type === "ON_CLICK" || reaction.trigger.type === "ON_PRESS");
@@ -883,16 +960,18 @@ export const interactionRuntimeScript = `
     var active = false;
     var fired = false;
     var dragState = null;
-    var dragAction = getPrimaryChangeAction(reaction);
+    var dragAction = null;
 
     source.style.cursor = source.style.cursor || "grab";
     source.style.touchAction = source.style.touchAction || "pan-y";
 
     source.addEventListener("pointerdown", function (event) {
       if (isNestedClickTarget(event, source)) return;
+      event.preventDefault();
       active = true;
       fired = false;
       dragState = null;
+      dragAction = null;
       startX = event.clientX;
       startY = event.clientY;
       document.addEventListener("pointermove", handlePointerMove);
@@ -912,6 +991,10 @@ export const interactionRuntimeScript = `
       var deltaY = event.clientY - startY;
       if (!dragState && Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 10) return;
 
+      if (!dragAction) {
+        dragAction = getDirectionalChangeAction(reaction, deltaX);
+      }
+
       if (!dragState && dragAction) {
         dragState = createDragChangeState(reaction, dragAction, deltaX);
       }
@@ -925,7 +1008,13 @@ export const interactionRuntimeScript = `
       if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 24) return;
       fired = true;
       active = false;
-      runActions(reaction.actions || [], reaction);
+      if (getPrimaryChangeAction(reaction)) {
+        if (dragAction) {
+          runAction(dragAction, reaction);
+        }
+      } else {
+        runActions(reaction.actions || [], reaction);
+      }
       cleanupPointerListeners();
     }
 
@@ -936,6 +1025,7 @@ export const interactionRuntimeScript = `
       active = false;
       fired = false;
       dragState = null;
+      dragAction = null;
       cleanupPointerListeners();
     }
 
@@ -946,6 +1036,7 @@ export const interactionRuntimeScript = `
       active = false;
       fired = false;
       dragState = null;
+      dragAction = null;
       cleanupPointerListeners();
     }
 

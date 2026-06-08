@@ -257,6 +257,9 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /data-fig-change-viewport/);
   assert.match(scripts, /data-fig-drag-viewport/);
   assert.match(scripts, /isControlLikeLayer/);
+  assert.match(scripts, /dragstart/);
+  assert.match(scripts, /getDirectionalChangeAction/);
+  assert.match(scripts, /inferNodeDirection/);
   assert.match(scripts, /createDragChangeState/);
   assert.match(scripts, /finishDragChangeState/);
   assert.match(scripts, /document\.addEventListener\("pointermove"/);
