@@ -28,6 +28,38 @@ export const interactionRuntimeCSS = `
 [data-fig-overlay-root] > * {
   pointer-events: auto;
 }
+
+.figma-swiper,
+.figma-swiper .swiper-wrapper,
+.figma-swiper .swiper-slide {
+  width: 100%;
+  height: 100%;
+}
+
+.figma-swiper {
+  display: block;
+  overflow: hidden;
+  position: relative;
+  touch-action: pan-y;
+  user-select: none;
+  z-index: 1;
+}
+
+.figma-swiper .swiper-wrapper {
+  box-sizing: content-box;
+  display: flex;
+  position: relative;
+  transition-property: transform;
+  z-index: 1;
+}
+
+.figma-swiper .swiper-slide {
+  display: block;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  transition-property: transform;
+}
 `.trim();
 
 export const interactionRuntimeScript = `
@@ -48,6 +80,8 @@ export const interactionRuntimeScript = `
   var currentPageId = model.initialPageId || null;
   var overlayRoot = document.querySelector("[data-fig-overlay-root]");
   var triggerEvents = ${JSON.stringify(triggerDomEventByType, null, 2)};
+  var runtimeTemplateById = new Map();
+  var swiperLoadPromise = null;
   var state = {
     variables: {},
     modes: {}
@@ -55,11 +89,21 @@ export const interactionRuntimeScript = `
   var diagnostics = {
     bound: 0,
     missingSources: [],
-    missingDestinations: []
+    missingDestinations: [],
+    delegatedClicks: [],
+    pageShows: []
   };
+  var swiperDiagnostics = {
+    carouselDragSuppressed: [],
+    initialized: [],
+    skipped: [],
+    errors: []
+  };
+  var carouselDragSuppressedKeys = {};
   window.__figmaInteractionModel = model;
   window.__figmaInteractionState = state;
   window.__figmaInteractionDiagnostics = diagnostics;
+  window.__figmaSwiperDiagnostics = swiperDiagnostics;
 
   document.addEventListener("dragstart", function (event) {
     if (event.target && event.target.closest && event.target.closest("[data-fig-id]")) {
@@ -85,6 +129,12 @@ export const interactionRuntimeScript = `
       }
     }
     return null;
+  }
+
+  function findByDataWithin(root, name, value) {
+    if (!root || !value) return null;
+    if (root.getAttribute && root.getAttribute(name) === value) return root;
+    return root.querySelector ? root.querySelector("[" + name + '="' + CSS.escape(value) + '"]') : null;
   }
 
   function getTemplateRoot(templateId) {
@@ -223,6 +273,19 @@ export const interactionRuntimeScript = `
     var resolvedPageId = pageById.has(pageId) ? pageId : nodePageById.get(pageId);
     var nextPage = resolvedPageId ? pageById.get(resolvedPageId) : null;
     if (!nextPage) {
+      var templatePage = getTemplateRoot(pageId);
+      if (templatePage) {
+        templatePage.setAttribute("data-fig-page", pageId);
+        templatePage.hidden = true;
+        document.body.insertBefore(templatePage, overlayRoot);
+        refreshPages();
+        resolvedPageId = templatePage.getAttribute("data-fig-page") || pageId;
+        nextPage = pageById.get(resolvedPageId);
+        bindAllReactions();
+        window.setTimeout(initFigmaSwiperCarousels, 0);
+      }
+    }
+    if (!nextPage) {
       var destination = findByData("data-fig-id", pageId);
       if (destination && typeof destination.scrollIntoView === "function") {
         destination.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
@@ -240,8 +303,17 @@ export const interactionRuntimeScript = `
       history.push(currentPageId);
     }
 
+    diagnostics.pageShows.push({
+      from: currentPageId,
+      to: resolvedPageId
+    });
     currentPageId = resolvedPageId;
-    transitionPages(previousPage, nextPage, transition, schedulePageTimeouts);
+    getPages().forEach(function (page) {
+      if (page !== previousPage && page !== nextPage) {
+        setPageVisible(page, false);
+      }
+    });
+    transitionPages(previousPage, nextPage, { type: "INSTANT", duration: 0 }, schedulePageTimeouts);
   }
 
   function showOverlay(destinationId, action) {
@@ -275,16 +347,19 @@ export const interactionRuntimeScript = `
   }
 
   function changeTo(destinationId, action) {
+    var target = findChangeTarget(this && this.sourceId);
     var existingDestination = findByData("data-fig-id", destinationId);
-    var destination = existingDestination || getTemplateRoot(destinationId);
+    var destination = getChangeDestination(destinationId, target);
     if (!destination) {
       diagnostics.missingDestinations.push(destinationId);
       console.warn("[Figma interactions] CHANGE_TO destination was not exported or cannot be found:", destinationId);
       return;
     }
 
-    if (!existingDestination) {
-      var target = findChangeTarget(this && this.sourceId);
+    if (!existingDestination || existingDestination === target) {
+      if (target && target.__figmaChangeToAnimating) {
+        return;
+      }
       if (target) {
         animateChangeTo(target, destination, destinationId, action, this && this.sourceId);
       }
@@ -302,9 +377,20 @@ export const interactionRuntimeScript = `
   }
 
   function commitChangeTo(target, destination, destinationId) {
+    rememberCurrentTemplate(target);
     target.innerHTML = destination.innerHTML;
     target.setAttribute("data-fig-current-variant-id", destinationId);
     bindAllReactions();
+  }
+
+  function rememberCurrentTemplate(target) {
+    var currentVariantId = target.getAttribute("data-fig-current-variant-id") || target.getAttribute("data-fig-id");
+    if (target.querySelector && target.querySelector(".figma-swiper")) {
+      return;
+    }
+    if (currentVariantId && !runtimeTemplateById.has(currentVariantId)) {
+      runtimeTemplateById.set(currentVariantId, target.innerHTML);
+    }
   }
 
   function setupChangeLayer(layer) {
@@ -344,6 +430,24 @@ export const interactionRuntimeScript = `
       name.indexOf("arrow") >= 0 ||
       name.indexOf("left") >= 0 ||
       name.indexOf("right") >= 0
+    );
+  }
+
+  function isArrowControlLayer(element) {
+    var name = [
+      element.getAttribute("data-layer") || "",
+      element.getAttribute("class") || "",
+      element.getAttribute("data-fig-id") || ""
+    ].join(" ").toLowerCase();
+
+    return (
+      name.indexOf("btn") >= 0 ||
+      name.indexOf("button") >= 0 ||
+      name.indexOf("arrow") >= 0 ||
+      name.indexOf("left") >= 0 ||
+      name.indexOf("right") >= 0 ||
+      name.indexOf("prev") >= 0 ||
+      name.indexOf("next") >= 0
     );
   }
 
@@ -434,11 +538,10 @@ export const interactionRuntimeScript = `
     }
 
     if (target.__figmaChangeToAnimating) {
-      target.__figmaChangeToAnimating = false;
-      commitChangeTo(target, destination, destinationId);
       return;
     }
 
+    rememberCurrentTemplate(target);
     target.__figmaChangeToAnimating = true;
 
     var direction = inferChangeDirection(target, sourceId);
@@ -526,8 +629,24 @@ export const interactionRuntimeScript = `
     }, duration);
   }
 
-  function getChangeDestination(destinationId) {
-    return findByData("data-fig-id", destinationId) || getTemplateRoot(destinationId);
+  function getRuntimeTemplateRoot(templateId) {
+    if (!runtimeTemplateById.has(templateId)) return null;
+    var root = document.createElement("div");
+    root.innerHTML = runtimeTemplateById.get(templateId);
+    return root;
+  }
+
+  function getChangeDestination(destinationId, target) {
+    var existing = findByData("data-fig-id", destinationId);
+    if (existing && existing !== target) {
+      return existing;
+    }
+
+    if (existing === target && target && target.getAttribute("data-fig-current-variant-id") === destinationId) {
+      return existing;
+    }
+
+    return getRuntimeTemplateRoot(destinationId) || getTemplateRoot(destinationId) || existing;
   }
 
   function getPrimaryChangeAction(reaction) {
@@ -574,27 +693,18 @@ export const interactionRuntimeScript = `
     return "forward";
   }
 
-  function getDirectionalChangeAction(reaction, deltaX) {
-    var desiredDirection = deltaX < 0 ? "forward" : "backward";
-    var target = findChangeTarget(reaction.sourceId);
-    var currentRootId = target && (target.getAttribute("data-fig-current-variant-id") || target.getAttribute("data-fig-id"));
-    var fallbackAction = getPrimaryChangeAction(reaction);
-
-    if (!target || !currentRootId) {
-      return fallbackAction;
-    }
-
+  function findDirectionalActionInRoot(rootId, direction, target) {
     for (var reactionIndex = 0; reactionIndex < (model.reactions || []).length; reactionIndex += 1) {
       var candidateReaction = model.reactions[reactionIndex];
       if (!candidateReaction.trigger || (candidateReaction.trigger.type !== "ON_CLICK" && candidateReaction.trigger.type !== "ON_PRESS")) {
         continue;
       }
-      if (!isNodeDescendantOf(candidateReaction.sourceId, currentRootId)) {
+      if (!isNodeDescendantOf(candidateReaction.sourceId, rootId)) {
         continue;
       }
 
       var candidateNode = nodeById.get(candidateReaction.sourceId);
-      if (inferNodeDirection(candidateNode, target) !== desiredDirection) {
+      if (inferNodeDirection(candidateNode, target) !== direction) {
         continue;
       }
 
@@ -604,11 +714,93 @@ export const interactionRuntimeScript = `
       }
     }
 
-    if (desiredDirection === "forward") {
-      return fallbackAction;
+    return null;
+  }
+
+  function findForwardActionForRoot(rootId, target) {
+    var action = findDirectionalActionInRoot(rootId, "forward", target);
+    if (action) return action;
+
+    for (var reactionIndex = 0; reactionIndex < (model.reactions || []).length; reactionIndex += 1) {
+      var candidateReaction = model.reactions[reactionIndex];
+      if (
+        candidateReaction.sourceId === rootId &&
+        candidateReaction.trigger &&
+        candidateReaction.trigger.type === "ON_DRAG"
+      ) {
+        return getPrimaryChangeAction(candidateReaction);
+      }
     }
 
     return null;
+  }
+
+  function buildLinearDragChain(startRootId, target) {
+    var chain = [startRootId];
+    var visited = {};
+    visited[startRootId] = true;
+    var currentId = startRootId;
+
+    while (currentId) {
+      var action = findForwardActionForRoot(currentId, target);
+      var destinationId = action && action.destinationId;
+      if (!destinationId || visited[destinationId]) break;
+      chain.push(destinationId);
+      visited[destinationId] = true;
+      currentId = destinationId;
+    }
+
+    return chain;
+  }
+
+  function findDragChainForCurrentRoot(currentRootId, target) {
+    var candidates = [target.getAttribute("data-fig-id"), currentRootId].filter(Boolean);
+
+    for (var nodeIndex = 0; nodeIndex < (model.nodes || []).length; nodeIndex += 1) {
+      var node = model.nodes[nodeIndex];
+      if (node && node.type === "INSTANCE") {
+        candidates.push(node.id);
+      }
+    }
+
+    for (var index = 0; index < candidates.length; index += 1) {
+      var chain = buildLinearDragChain(candidates[index], target);
+      if (chain.indexOf(currentRootId) >= 0) {
+        return chain;
+      }
+    }
+
+    return [currentRootId];
+  }
+
+  function cloneActionWithDestination(action, destinationId) {
+    var clone = {};
+    Object.keys(action || {}).forEach(function (key) {
+      clone[key] = action[key];
+    });
+    clone.destinationId = destinationId;
+    return clone;
+  }
+
+  function getDirectionalChangeAction(reaction, deltaX) {
+    var desiredDirection = deltaX < 0 ? "forward" : "backward";
+    var target = findChangeTarget(reaction.sourceId);
+    var currentRootId = target && (target.getAttribute("data-fig-current-variant-id") || target.getAttribute("data-fig-id"));
+    var baseAction = getPrimaryChangeAction(reaction);
+
+    if (!target || !currentRootId || !baseAction) {
+      return baseAction;
+    }
+
+    var chain = findDragChainForCurrentRoot(currentRootId, target);
+    var currentIndex = chain.indexOf(currentRootId);
+    var nextIndex = desiredDirection === "forward" ? currentIndex + 1 : currentIndex - 1;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= chain.length) {
+      return null;
+    }
+
+    return cloneActionWithDestination(baseAction, chain[nextIndex]);
   }
 
   function hasClickReaction(sourceId) {
@@ -623,7 +815,7 @@ export const interactionRuntimeScript = `
 
     while (current && current !== source) {
       var sourceId = current.getAttribute("data-fig-id");
-      if (sourceId && hasClickReaction(sourceId)) {
+      if (sourceId && hasClickReaction(sourceId) && isArrowControlLayer(current)) {
         return true;
       }
       current = current.parentElement && typeof current.parentElement.closest === "function" ? current.parentElement.closest("[data-fig-id]") : null;
@@ -633,8 +825,8 @@ export const interactionRuntimeScript = `
   }
 
   function createDragChangeState(reaction, action, initialDeltaX) {
-    var destination = getChangeDestination(action.destinationId);
     var target = findChangeTarget(reaction.sourceId);
+    var destination = getChangeDestination(action.destinationId, target);
     if (!destination || !target || target.__figmaChangeToAnimating) return null;
 
     var viewportPair = findChangeViewportPair(target, destination);
@@ -654,6 +846,7 @@ export const interactionRuntimeScript = `
     var nextLayer = document.createElement("div");
     var referenceNode = viewportPair.source.nextSibling;
 
+    rememberCurrentTemplate(target);
     target.__figmaChangeToAnimating = true;
     host.style.cssText = viewportPair.source.style.cssText;
     host.style.overflow = "hidden";
@@ -726,6 +919,490 @@ export const interactionRuntimeScript = `
     }, releaseDuration);
   }
 
+  function ensureSwiperLoaded() {
+    if (window.Swiper) return Promise.resolve(window.Swiper);
+    if (swiperLoadPromise) return swiperLoadPromise;
+
+    swiperLoadPromise = new Promise(function (resolve, reject) {
+      if (!document.querySelector('link[data-fig-swiper-css]')) {
+        var link = document.createElement("link");
+        link.setAttribute("data-fig-swiper-css", "");
+        link.rel = "stylesheet";
+        link.href = "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css";
+        document.head.appendChild(link);
+      }
+
+      var existingScript = document.querySelector('script[data-fig-swiper-js]');
+      if (existingScript) {
+        existingScript.addEventListener("load", function () {
+          resolve(window.Swiper);
+        });
+        existingScript.addEventListener("error", reject);
+        return;
+      }
+
+      var script = document.createElement("script");
+      script.setAttribute("data-fig-swiper-js", "");
+      script.src = "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js";
+      script.onload = function () {
+        resolve(window.Swiper);
+      };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+
+    return swiperLoadPromise;
+  }
+
+  function getCarouselSlideRoots(carouselId, root) {
+    var slideRoots = [];
+    var currentVariantId = root.getAttribute("data-fig-current-variant-id") || root.getAttribute("data-fig-id");
+    var rootId = root.getAttribute("data-fig-id");
+    var currentClone = root.cloneNode(true);
+    currentClone.setAttribute("data-fig-id", currentVariantId || rootId || carouselId);
+    slideRoots.push(currentClone);
+
+    if (rootId && runtimeTemplateById.has(rootId)) {
+      var runtimeRoot = getRuntimeTemplateRoot(rootId);
+      if (runtimeRoot) {
+        runtimeRoot.setAttribute("data-fig-id", rootId);
+        slideRoots.push(runtimeRoot);
+      }
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll('template[data-fig-template]')).forEach(function (template) {
+      var candidate = template.content && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null;
+      if (!candidate) return;
+      if (candidate.getAttribute("data-fig-carousel") !== carouselId || !candidate.hasAttribute("data-fig-carousel-slide")) return;
+      slideRoots.push(candidate);
+    });
+
+    if (getUniqueSlideRootCount(slideRoots) < 2) {
+      getPrototypeCarouselSlideIds(root, carouselId).forEach(function (slideId) {
+        if (!slideId || slideId === currentVariantId || slideId === rootId) return;
+        var destination = getChangeDestination(slideId, root);
+        if (destination) {
+          var clone = destination.cloneNode(true);
+          clone.setAttribute("data-fig-id", slideId);
+          slideRoots.push(clone);
+        }
+      });
+    }
+
+    var byId = new Map();
+    slideRoots.forEach(function (slideRoot) {
+      var slideId = slideRoot.getAttribute("data-fig-id");
+      if (slideId && !byId.has(slideId)) {
+        byId.set(slideId, slideRoot);
+      }
+    });
+
+    var sortedRoots = Array.from(byId.values()).sort(function (left, right) {
+      return Number(left.getAttribute("data-fig-carousel-index") || 0) - Number(right.getAttribute("data-fig-carousel-index") || 0);
+    });
+
+    var usedIndexes = {};
+    return sortedRoots.filter(function (slideRoot) {
+      var index = slideRoot.getAttribute("data-fig-carousel-index");
+      if (index == null || index === "") return true;
+      if (usedIndexes[index]) return false;
+      usedIndexes[index] = true;
+      return true;
+    });
+  }
+
+  function getUniqueSlideRootCount(slideRoots) {
+    var byId = {};
+    slideRoots.forEach(function (slideRoot) {
+      var slideId = slideRoot && slideRoot.getAttribute && slideRoot.getAttribute("data-fig-id");
+      if (slideId) byId[slideId] = true;
+    });
+    return Object.keys(byId).length;
+  }
+
+  function getPrototypeRootId(sourceId) {
+    var current = nodeById.get(sourceId);
+    while (current) {
+      if (current.type === "INSTANCE" || current.type === "COMPONENT" || current.type === "COMPONENT_SET") {
+        return current.id;
+      }
+      current = current.parentId ? nodeById.get(current.parentId) : null;
+    }
+    return sourceId;
+  }
+
+  function getPrototypeCarouselSlideIds(root, carouselId) {
+    var rootId = root.getAttribute("data-fig-id");
+    var activeVariantId = root.getAttribute("data-fig-current-variant-id") || rootId;
+    var chain = findDragChainForCurrentRoot(activeVariantId || carouselId || rootId, root);
+    var seeds = [carouselId, rootId, activeVariantId].filter(Boolean);
+    var ordered = [];
+    var seen = {};
+
+    function add(slideId) {
+      if (!slideId || seen[slideId]) return;
+      seen[slideId] = true;
+      ordered.push(slideId);
+    }
+
+    chain.forEach(add);
+    seeds.forEach(add);
+
+    for (var scan = 0; scan < ordered.length; scan += 1) {
+      var currentId = ordered[scan];
+      (model.reactions || []).forEach(function (reaction) {
+        var sourceRootId = getPrototypeRootId(reaction.sourceId);
+        getChangeActions(reaction).forEach(function (action) {
+          if (sourceRootId === currentId) add(action.destinationId);
+          if (action.destinationId === currentId) add(sourceRootId);
+        });
+      });
+    }
+
+    return ordered;
+  }
+
+  function findCarouselViewport(root) {
+    var marked = root.querySelector("[data-fig-carousel-viewport]");
+    if (marked) return marked;
+
+    var rootId = root.getAttribute("data-fig-id") || root.getAttribute("data-fig-current-variant-id");
+    if (!rootId) return null;
+
+    var candidates = [];
+    for (var index = 0; index < (model.nodes || []).length; index += 1) {
+      var node = model.nodes[index];
+      if (!node || node.parentId !== rootId) continue;
+      var area = (node.width || 0) * (node.height || 0);
+      if (area <= 0) continue;
+      candidates.push({ node: node, area: area });
+    }
+
+    candidates.sort(function (left, right) {
+      return right.area - left.area;
+    });
+
+    for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      var candidate = candidates[candidateIndex].node;
+      var element = findByDataWithin(root, "data-fig-id", candidate.id);
+      if (element && !isArrowControlLayer(element)) {
+        element.setAttribute("data-fig-carousel-viewport", "");
+        return element;
+      }
+    }
+
+    return null;
+  }
+
+  function recordSwiperSkip(root, reason, extra) {
+    var rootId = root && root.getAttribute ? root.getAttribute("data-fig-id") : null;
+    var carouselId = root && root.getAttribute ? root.getAttribute("data-fig-carousel") : null;
+    var alreadyInitialized = swiperDiagnostics.initialized.some(function (entry) {
+      return entry.rootId === rootId && entry.carouselId === carouselId;
+    });
+    if (alreadyInitialized) return;
+
+    swiperDiagnostics.skipped.push(
+      Object.assign(
+        {
+          reason: reason,
+          rootId: rootId,
+          carouselId: carouselId
+        },
+        extra || {}
+      )
+    );
+  }
+
+  function normalizeSwiperViewport(viewport, width, height) {
+    var clone = viewport.cloneNode(false);
+    clone.style.left = "0";
+    clone.style.top = "0";
+    clone.style.right = "";
+    clone.style.bottom = "";
+    clone.style.position = "relative";
+    clone.style.width = width ? width + "px" : "100%";
+    clone.style.height = height ? height + "px" : "100%";
+    clone.style.maxWidth = "none";
+    clone.style.minWidth = "0";
+    clone.innerHTML = "";
+
+    var viewportWidth = width || parsePixelValue(viewport.style.width) || 0;
+    var viewportHeight = height || parsePixelValue(viewport.style.height) || 0;
+    var appended = false;
+
+    Array.prototype.slice.call(viewport.children || []).forEach(function (child) {
+      var left = parsePixelValue(child.style.left) || 0;
+      var top = parsePixelValue(child.style.top) || 0;
+      var childWidth = parsePixelValue(child.style.width) || child.getBoundingClientRect().width || viewportWidth;
+      var childHeight = parsePixelValue(child.style.height) || child.getBoundingClientRect().height || viewportHeight;
+      var right = left + childWidth;
+      var bottom = top + childHeight;
+      var visible = right > 0 && bottom > 0 && left < viewportWidth && top < viewportHeight;
+
+      if (!visible) return;
+
+      var childClone = child.cloneNode(true);
+      childClone.style.left = left + "px";
+      childClone.style.top = top + "px";
+      clone.appendChild(childClone);
+      appended = true;
+    });
+
+    if (!appended) {
+      Array.prototype.slice.call(viewport.childNodes || []).forEach(function (child) {
+        clone.appendChild(child.cloneNode(true));
+      });
+    }
+
+    return clone;
+  }
+
+  function initFigmaSwiperCarousel(root, SwiperConstructor) {
+    if (!root) {
+      recordSwiperSkip(root, "missing-root");
+      return;
+    }
+    if (root.__figmaSwiperInitialized) return;
+    if (root.__figmaChangeToAnimating) {
+      recordSwiperSkip(root, "animating");
+      return;
+    }
+
+    var carouselId = root.getAttribute("data-fig-carousel");
+    var activeVariantId = root.getAttribute("data-fig-current-variant-id") || root.getAttribute("data-fig-id");
+    var activeViewport = findCarouselViewport(root);
+    if (!carouselId) {
+      recordSwiperSkip(root, "missing-carousel-id");
+      return;
+    }
+    if (!activeViewport) {
+      recordSwiperSkip(root, "missing-viewport");
+      return;
+    }
+
+    var slideRoots = getCarouselSlideRoots(carouselId, root);
+    if (slideRoots.length < 2) {
+      recordSwiperSkip(root, "not-enough-slide-roots", { slideRoots: slideRoots.length });
+      return;
+    }
+
+    var activeIndex = slideRoots.findIndex(function (slideRoot) {
+      return slideRoot.getAttribute("data-fig-id") === activeVariantId;
+    });
+    if (activeIndex < 0) activeIndex = 0;
+
+    rememberCurrentTemplate(root);
+
+    var viewportRect = activeViewport.getBoundingClientRect();
+    var viewportWidth =
+      viewportRect.width ||
+      parsePixelValue(activeViewport.style.width) ||
+      activeViewport.offsetWidth ||
+      parsePixelValue(root.style.width) ||
+      root.getBoundingClientRect().width;
+    var viewportHeight =
+      viewportRect.height ||
+      parsePixelValue(activeViewport.style.height) ||
+      activeViewport.offsetHeight ||
+      parsePixelValue(root.style.height) ||
+      root.getBoundingClientRect().height;
+
+    var swiperEl = document.createElement("div");
+    var wrapper = document.createElement("div");
+    swiperEl.className = "swiper figma-swiper";
+    wrapper.className = "swiper-wrapper";
+    swiperEl.style.cssText = activeViewport.style.cssText;
+    swiperEl.style.display = "block";
+    if (viewportWidth) swiperEl.style.width = viewportWidth + "px";
+    if (viewportHeight) swiperEl.style.height = viewportHeight + "px";
+    swiperEl.style.overflow = "hidden";
+    swiperEl.style.position = swiperEl.style.position || "relative";
+    swiperEl.style.touchAction = "pan-y";
+    swiperEl.style.userSelect = "none";
+    wrapper.style.boxSizing = "content-box";
+    wrapper.style.display = "flex";
+    wrapper.style.height = "100%";
+    wrapper.style.position = "relative";
+    wrapper.style.transitionProperty = "transform";
+    wrapper.style.width = "100%";
+    swiperEl.setAttribute("data-fig-swiper", carouselId);
+
+    var slideRootById = {};
+    slideRoots.forEach(function (slideRoot) {
+      var viewport = findCarouselViewport(slideRoot);
+      if (!viewport) return;
+      var slideRootId = slideRoot.getAttribute("data-fig-id") || "";
+      if (slideRootId) {
+        slideRootById[slideRootId] = slideRoot;
+      }
+      var slide = document.createElement("div");
+      slide.className = "swiper-slide";
+      slide.setAttribute("data-fig-swiper-slide-id", slideRootId);
+      slide.style.display = "block";
+      slide.style.overflow = "hidden";
+      slide.style.position = "relative";
+      slide.style.width = viewportWidth ? viewportWidth + "px" : "100%";
+      slide.style.height = viewportHeight ? viewportHeight + "px" : "100%";
+      slide.style.flexShrink = "0";
+      if (viewportWidth) slide.style.minWidth = viewportWidth + "px";
+      if (viewportHeight) slide.style.minHeight = viewportHeight + "px";
+      slide.appendChild(normalizeSwiperViewport(viewport, viewportWidth, viewportHeight));
+      wrapper.appendChild(slide);
+    });
+
+    if (wrapper.children.length < 2) {
+      recordSwiperSkip(root, "not-enough-rendered-slides", { renderedSlides: wrapper.children.length, slideRoots: slideRoots.length });
+      return;
+    }
+
+    activeViewport.replaceWith(swiperEl);
+    swiperEl.appendChild(wrapper);
+    root.__figmaSwiperInitialized = true;
+
+    var swiperOptions = {
+      allowTouchMove: true,
+      grabCursor: true,
+      initialSlide: activeIndex,
+      loop: false,
+      preventInteractionOnTransition: false,
+      resistanceRatio: 0,
+      simulateTouch: true,
+      slidesPerView: 1,
+      speed: 420,
+      threshold: 8,
+      touchMoveStopPropagation: false,
+      touchStartPreventDefault: false,
+      watchOverflow: false
+    };
+    if (viewportWidth) {
+      swiperOptions.width = viewportWidth;
+    }
+
+    var swiper = new SwiperConstructor(swiperEl, swiperOptions);
+    swiper.updateSize();
+    swiper.updateSlides();
+    swiper.updateProgress();
+    swiper.updateSlidesClasses();
+
+    root.__figmaSwiper = swiper;
+    root.setAttribute("data-fig-swiper-ready", "");
+    swiperDiagnostics.initialized.push({
+      rootId: root.getAttribute("data-fig-id") || null,
+      carouselId: carouselId,
+      activeIndex: activeIndex,
+      height: swiper.height || viewportHeight || null,
+      slides: wrapper.children.length,
+      width: swiper.width || viewportWidth || null
+    });
+
+    function getActiveSwiperSlideRoot() {
+      var activeSlide =
+        swiper.slides && swiper.slides[swiper.activeIndex]
+          ? swiper.slides[swiper.activeIndex]
+          : swiperEl.querySelector(".swiper-slide-active");
+      var activeSlideId = activeSlide && activeSlide.getAttribute ? activeSlide.getAttribute("data-fig-swiper-slide-id") : "";
+      return slideRootById[activeSlideId] || slideRoots[swiper.activeIndex] || null;
+    }
+
+    function syncSwiperCarouselState() {
+      var activeSlideRoot = getActiveSwiperSlideRoot();
+      if (activeSlideRoot) {
+        root.setAttribute("data-fig-current-variant-id", activeSlideRoot.getAttribute("data-fig-id") || "");
+        if (activeSlideRoot.hasAttribute("data-fig-carousel")) {
+          root.setAttribute("data-fig-carousel", activeSlideRoot.getAttribute("data-fig-carousel") || "");
+        }
+        if (activeSlideRoot.hasAttribute("data-fig-carousel-index")) {
+          root.setAttribute("data-fig-carousel-index", activeSlideRoot.getAttribute("data-fig-carousel-index") || "0");
+        }
+
+        var sourcePagination = activeSlideRoot.querySelector("[data-fig-carousel-pagination]");
+        var targetPagination = root.querySelector("[data-fig-carousel-pagination]");
+        if (sourcePagination && targetPagination) {
+          targetPagination.innerHTML = sourcePagination.innerHTML;
+          targetPagination.setAttribute("data-fig-id", sourcePagination.getAttribute("data-fig-id") || "");
+          targetPagination.setAttribute("data-fig-carousel", sourcePagination.getAttribute("data-fig-carousel") || "");
+          targetPagination.className = sourcePagination.className;
+          targetPagination.style.cssText = sourcePagination.style.cssText;
+        }
+      }
+
+      Array.prototype.slice.call(root.querySelectorAll("[data-fig-carousel-next], [data-fig-carousel-prev], .BtnRight, .BtnLeft")).forEach(function (control) {
+        var isPrev = control.hasAttribute("data-fig-carousel-prev") || String(control.className || "").indexOf("BtnLeft") >= 0;
+        var isNext = control.hasAttribute("data-fig-carousel-next") || String(control.className || "").indexOf("BtnRight") >= 0;
+        if (!isPrev && !isNext) return;
+        var disabled = isPrev ? swiper.isBeginning : swiper.isEnd;
+        control.style.opacity = disabled ? "0.3" : "1";
+        control.style.pointerEvents = disabled ? "none" : "auto";
+        control.style.cursor = disabled ? "default" : "pointer";
+      });
+    }
+
+    Array.prototype.slice.call(root.querySelectorAll("[data-fig-carousel-next], [data-fig-carousel-prev], .BtnRight, .BtnLeft")).forEach(function (control) {
+      control.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (control.hasAttribute("data-fig-carousel-prev") || String(control.className || "").indexOf("BtnLeft") >= 0) {
+          swiper.slidePrev();
+        } else {
+          swiper.slideNext();
+        }
+      }, true);
+    });
+
+    swiper.on("slideChangeTransitionStart", function () {
+      root.__figmaChangeToAnimating = true;
+    });
+
+    swiper.on("activeIndexChange", function () {
+      syncSwiperCarouselState();
+    });
+
+    swiper.on("slideChange", function () {
+      syncSwiperCarouselState();
+    });
+
+    swiper.on("slideChangeTransitionEnd", function () {
+      root.__figmaChangeToAnimating = false;
+      syncSwiperCarouselState();
+    });
+
+    swiper.on("touchEnd", function () {
+      window.setTimeout(function () {
+        if (swiper.activeIndex === activeIndex) {
+          root.__figmaChangeToAnimating = false;
+        }
+      }, 0);
+    });
+
+    syncSwiperCarouselState();
+  }
+
+  function initFigmaSwiperCarousels() {
+    ensureSwiperLoaded()
+      .then(function (SwiperConstructor) {
+        Array.prototype.slice.call(document.querySelectorAll("[data-fig-carousel-root]")).forEach(function (root) {
+          try {
+            initFigmaSwiperCarousel(root, SwiperConstructor);
+          } catch (error) {
+            swiperDiagnostics.errors.push({
+              rootId: root && root.getAttribute ? root.getAttribute("data-fig-id") : null,
+              carouselId: root && root.getAttribute ? root.getAttribute("data-fig-carousel") : null,
+              message: error && error.message ? error.message : String(error)
+            });
+            console.warn("[Figma interactions] Swiper carousel failed to initialize:", error);
+          }
+        });
+      })
+      .catch(function (error) {
+        swiperDiagnostics.errors.push({
+          reason: "load-failed",
+          message: error && error.message ? error.message : String(error)
+        });
+        console.warn("[Figma interactions] Swiper failed to load. Carousel click interactions remain available, but Swiper drag is disabled.");
+      });
+  }
+
   function findChangeTarget(sourceId) {
     var sourceNode = nodeById.get(sourceId);
     var current = sourceNode && sourceNode.parentId ? nodeById.get(sourceNode.parentId) : sourceNode;
@@ -743,11 +1420,28 @@ export const interactionRuntimeScript = `
       current = current.parentId ? nodeById.get(current.parentId) : null;
     }
 
-    return findByData("data-fig-id", sourceId);
+    return findSourceElement(sourceId);
   }
 
   function findSourceElement(sourceId) {
     return findByData("data-fig-id", sourceId) || findByData("data-fig-current-variant-id", sourceId);
+  }
+
+  function isCarouselRootElement(element) {
+    if (!element) return false;
+    if (element.hasAttribute && element.hasAttribute("data-fig-carousel-root")) return true;
+    return !!(element.closest && element.closest("[data-fig-carousel-root]"));
+  }
+
+  function isReactionActiveForSource(reaction, source) {
+    var activeVariantId = source && source.getAttribute && source.getAttribute("data-fig-current-variant-id");
+    var sourceId = source && source.getAttribute && source.getAttribute("data-fig-id");
+
+    if (activeVariantId && sourceId === reaction.sourceId && activeVariantId !== reaction.sourceId) {
+      return false;
+    }
+
+    return true;
   }
 
   function runAction(action, reaction) {
@@ -910,6 +1604,21 @@ export const interactionRuntimeScript = `
     }
 
     if (reaction.trigger.type === "ON_DRAG") {
+      var dragSource = findSourceElement(reaction.sourceId);
+      if (isCarouselRootElement(dragSource)) {
+        var rootId = dragSource && dragSource.getAttribute ? dragSource.getAttribute("data-fig-id") : null;
+        var carouselId = dragSource && dragSource.getAttribute ? dragSource.getAttribute("data-fig-carousel") : null;
+        var suppressKey = reaction.sourceId + ":" + rootId + ":" + carouselId;
+        if (!carouselDragSuppressedKeys[suppressKey]) {
+          carouselDragSuppressedKeys[suppressKey] = true;
+          swiperDiagnostics.carouselDragSuppressed.push({
+            sourceId: reaction.sourceId,
+            rootId: rootId,
+            carouselId: carouselId
+          });
+        }
+        return;
+      }
       bindDragReaction(reaction);
       return;
     }
@@ -918,8 +1627,6 @@ export const interactionRuntimeScript = `
     var source = findSourceElement(reaction.sourceId);
     if (!eventName) return;
     if (!source) {
-      diagnostics.missingSources.push(reaction.sourceId);
-      console.warn("[Figma interactions] Source node was not exported or cannot be found:", reaction.sourceId);
       return;
     }
 
@@ -930,6 +1637,7 @@ export const interactionRuntimeScript = `
 
     source.style.cursor = source.style.cursor || "pointer";
     source.addEventListener(eventName, function () {
+      if (!isReactionActiveForSource(reaction, source)) return;
       var delay = reaction.trigger.delay || 0;
       if (delay > 0) {
         window.setTimeout(function () {
@@ -945,8 +1653,6 @@ export const interactionRuntimeScript = `
   function bindDragReaction(reaction) {
     var source = findSourceElement(reaction.sourceId);
     if (!source) {
-      diagnostics.missingSources.push(reaction.sourceId);
-      console.warn("[Figma interactions] Source node was not exported or cannot be found:", reaction.sourceId);
       return;
     }
 
@@ -966,6 +1672,8 @@ export const interactionRuntimeScript = `
     source.style.touchAction = source.style.touchAction || "pan-y";
 
     source.addEventListener("pointerdown", function (event) {
+      if (source.__figmaSwiper && !source.__figmaSwiper.destroyed) return;
+      if (!isReactionActiveForSource(reaction, source)) return;
       if (isNestedClickTarget(event, source)) return;
       event.preventDefault();
       active = true;
@@ -997,6 +1705,11 @@ export const interactionRuntimeScript = `
 
       if (!dragState && dragAction) {
         dragState = createDragChangeState(reaction, dragAction, deltaX);
+        if (!dragState) {
+          active = false;
+          cleanupPointerListeners();
+          return;
+        }
       }
 
       if (dragState) {
@@ -1047,16 +1760,65 @@ export const interactionRuntimeScript = `
     (model.reactions || []).forEach(bindReaction);
   }
 
+  function hasNavigateAction(reaction) {
+    return (reaction.actions || []).some(function (action) {
+      return action && action.type === "NODE" && action.destinationId && action.navigation !== "CHANGE_TO" && action.navigation !== "OVERLAY" && action.navigation !== "SCROLL_TO";
+    });
+  }
+
+  function bindDelegatedNavigateReactions() {
+    if (document.__figmaDelegatedNavigateBound) return;
+    document.__figmaDelegatedNavigateBound = true;
+
+    document.addEventListener("click", function (event) {
+      if (!event.target || typeof event.target.closest !== "function") return;
+
+      var current = event.target.closest("[data-fig-id]");
+      while (current) {
+        var sourceId = current.getAttribute("data-fig-id");
+        var reaction = (model.reactions || []).find(function (candidate) {
+          return (
+            candidate.sourceId === sourceId &&
+            candidate.trigger &&
+            (candidate.trigger.type === "ON_CLICK" || candidate.trigger.type === "ON_PRESS") &&
+            (!candidate.sourcePageId || candidate.sourcePageId === currentPageId) &&
+            hasNavigateAction(candidate)
+          );
+        });
+
+        if (reaction) {
+          event.preventDefault();
+          event.stopPropagation();
+          var action = (reaction.actions || []).find(function (candidate) {
+            return candidate && candidate.type === "NODE" && candidate.destinationId && candidate.navigation !== "CHANGE_TO" && candidate.navigation !== "OVERLAY" && candidate.navigation !== "SCROLL_TO";
+          });
+          diagnostics.delegatedClicks.push({
+            sourceId: sourceId,
+            destinationId: action && action.destinationId
+          });
+          if (action) {
+            showPage(action.destinationId, action.transition, action.navigation !== "SWAP");
+          }
+          return;
+        }
+
+        current = current.parentElement && typeof current.parentElement.closest === "function" ? current.parentElement.closest("[data-fig-id]") : null;
+      }
+    }, true);
+  }
+
   refreshPages();
   getPages().forEach(function (page) {
     setPageVisible(page, page.getAttribute("data-fig-page") === currentPageId);
   });
+  bindDelegatedNavigateReactions();
   bindAllReactions();
   if (!(model.reactions || []).length) {
     console.warn("[Figma interactions] No prototype reactions were exported. Check that the selected nodes contain prototype interactions.");
   } else if (diagnostics.bound === 0) {
     console.warn("[Figma interactions] Prototype reactions exist, but no DOM listeners were bound.", diagnostics);
   }
+  initFigmaSwiperCarousels();
   schedulePageTimeouts();
 })();
 `.trim();

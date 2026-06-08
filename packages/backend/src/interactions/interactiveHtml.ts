@@ -1,6 +1,9 @@
 import type { PluginSettings } from "types";
 import { htmlMain, HtmlOutput } from "../html/htmlMain";
-import { collectInteractionModel } from "./interactionModel";
+import {
+  collectCarouselAttributes,
+  collectInteractionModel,
+} from "./interactionModel";
 import {
   interactionRuntimeCSS,
   renderInteractionScripts,
@@ -12,18 +15,19 @@ export const interactiveHtmlMain = async (
   isPreview: boolean = false,
   templateNodes: Array<SceneNode> = [],
 ): Promise<HtmlOutput> => {
+  const model = collectInteractionModel([...sceneNode, ...templateNodes]);
   const interactiveSettings: PluginSettings = {
     ...settings,
     framework: "HTML",
     htmlGenerationMode: "html",
     interactiveHtmlExport: true,
+    interactionAttributesByNodeId: collectCarouselAttributes(model),
   };
   const output = await htmlMain(sceneNode, interactiveSettings, isPreview);
   const templateHtml = await renderInteractionTemplates(
     templateNodes,
     interactiveSettings,
   );
-  const model = collectInteractionModel([...sceneNode, ...templateNodes]);
 
   return {
     html: `${output.html}

@@ -106,3 +106,22 @@ export type InteractionModel = {
   nodes: InteractionNode[];
   reactions: InteractionReaction[];
 };
+
+export type CarouselNodeRole =
+  | "root"
+  | "slide"
+  | "viewport"
+  | "next"
+  | "prev"
+  | "pagination";
+
+export type CarouselMetadata = {
+  id: string;
+  slides: string[];
+  nodeRoles: Record<string, CarouselNodeRole[]>;
+};
+
+export type InteractionAttributesByNodeId = Record<
+  string,
+  Record<string, string | boolean>
+>;

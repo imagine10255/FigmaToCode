@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  collectCarouselAttributes,
   collectInteractionModel,
   normalizeReaction,
   serializeInteractionModel,
@@ -258,8 +259,37 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /data-fig-drag-viewport/);
   assert.match(scripts, /isControlLikeLayer/);
   assert.match(scripts, /dragstart/);
+  assert.match(scripts, /ensureSwiperLoaded/);
+  assert.match(scripts, /swiper-bundle\.min\.js/);
+  assert.match(scripts, /initFigmaSwiperCarousels/);
+  assert.match(scripts, /__figmaSwiperDiagnostics/);
+  assert.match(scripts, /carouselDragSuppressed/);
+  assert.match(scripts, /delegatedClicks/);
+  assert.match(scripts, /pageShows/);
+  assert.match(scripts, /bindDelegatedNavigateReactions/);
+  assert.match(scripts, /new SwiperConstructor/);
+  assert.match(scripts, /allowTouchMove: true/);
+  assert.match(scripts, /loop: false/);
+  assert.match(scripts, /preventInteractionOnTransition: false/);
+  assert.match(scripts, /simulateTouch: true/);
+  assert.match(scripts, /watchOverflow: false/);
+  assert.match(scripts, /viewport\.cloneNode\(false\)/);
+  assert.match(scripts, /sourcePagination/);
+  assert.match(scripts, /getActiveSwiperSlideRoot/);
+  assert.match(scripts, /activeIndexChange/);
+  assert.match(
+    scripts,
+    /templatePage\.setAttribute\("data-fig-page", pageId\)/,
+  );
+  assert.match(scripts, /type: "INSTANT"/);
+  assert.match(scripts, /usedIndexes/);
+  assert.match(scripts, /root\.setAttribute\("data-fig-carousel"/);
+  assert.match(scripts, /root\.setAttribute\("data-fig-carousel-index"/);
   assert.match(scripts, /getDirectionalChangeAction/);
   assert.match(scripts, /inferNodeDirection/);
+  assert.match(scripts, /runtimeTemplateById/);
+  assert.match(scripts, /buildLinearDragChain/);
+  assert.match(scripts, /cloneActionWithDestination/);
   assert.match(scripts, /createDragChangeState/);
   assert.match(scripts, /finishDragChangeState/);
   assert.match(scripts, /document\.addEventListener\("pointermove"/);
@@ -271,4 +301,107 @@ test("change-to runtime animates smart-animate variants", () => {
     /Math\.max\(Math\.abs\(deltaX\), Math\.abs\(deltaY\)\) < 24/,
   );
   assert.doesNotMatch(scripts, /setPointerCapture/);
+  assert.doesNotMatch(
+    scripts,
+    /target\.__figmaChangeToAnimating = false;\n      commitChangeTo\(target, destination, destinationId\);\n      return;/,
+  );
+  assert.doesNotMatch(scripts, /function commitSwiperSlide/);
+  assert.doesNotMatch(scripts, /commitSwiperSlide\(root, slideRoot\)/);
+});
+
+test("collects carousel export attributes from change-to variants", () => {
+  const model = collectInteractionModel([
+    {
+      id: "carousel-a",
+      name: "Carousel",
+      type: "INSTANCE",
+      width: 830,
+      height: 380,
+      children: [
+        {
+          id: "viewport-a",
+          name: "Frame",
+          type: "FRAME",
+          parent: { id: "carousel-a" },
+          width: 830,
+          height: 380,
+          x: 0,
+          y: 0,
+          children: [],
+        },
+        {
+          id: "next-a",
+          name: "btn_right",
+          type: "INSTANCE",
+          parent: { id: "carousel-a" },
+          width: 65,
+          height: 135,
+          x: 825,
+          y: 87,
+          prototypeReactions: [
+            {
+              trigger: { type: "ON_CLICK" },
+              actions: [
+                {
+                  type: "NODE",
+                  destinationId: "carousel-b",
+                  navigation: "CHANGE_TO",
+                },
+              ],
+            },
+          ],
+          children: [],
+        },
+      ],
+    },
+    {
+      id: "carousel-b",
+      name: "Property 1=b",
+      type: "COMPONENT",
+      width: 830,
+      height: 380,
+      prototypeReactions: [
+        {
+          trigger: { type: "ON_DRAG" },
+          actions: [
+            {
+              type: "NODE",
+              destinationId: "carousel-c",
+              navigation: "CHANGE_TO",
+            },
+          ],
+        },
+      ],
+      children: [
+        {
+          id: "viewport-b",
+          name: "Frame",
+          type: "FRAME",
+          parent: { id: "carousel-b" },
+          width: 830,
+          height: 380,
+          x: 0,
+          y: 0,
+          children: [],
+        },
+      ],
+    },
+    {
+      id: "carousel-c",
+      name: "Property 1=c",
+      type: "COMPONENT",
+      width: 830,
+      height: 380,
+      children: [],
+    },
+  ] as any);
+
+  const attributes = collectCarouselAttributes(model);
+
+  assert.equal(attributes["carousel-a"]["fig-carousel"], "carousel-a");
+  assert.equal(attributes["carousel-a"]["fig-carousel-root"], true);
+  assert.equal(attributes["carousel-a"]["fig-carousel-slide"], true);
+  assert.equal(attributes["carousel-b"]["fig-carousel-index"], "1");
+  assert.equal(attributes["viewport-a"]["fig-carousel-viewport"], true);
+  assert.equal(attributes["next-a"]["fig-carousel-next"], true);
 });

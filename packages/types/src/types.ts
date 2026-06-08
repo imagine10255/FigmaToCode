@@ -8,6 +8,10 @@ export interface HTMLSettings {
   useColorVariables: boolean;
   htmlGenerationMode: "html" | "jsx" | "styled-components" | "svelte";
   interactiveHtmlExport: boolean;
+  interactionAttributesByNodeId?: Record<
+    string,
+    Record<string, string | boolean>
+  >;
 }
 export interface TailwindSettings extends HTMLSettings {
   tailwindGenerationMode: "html" | "jsx" | "twig";

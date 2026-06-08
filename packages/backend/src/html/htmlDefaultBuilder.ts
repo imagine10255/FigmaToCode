@@ -465,6 +465,16 @@ export class HtmlDefaultBuilder {
       if (!(this.node as any).parent && pageNodeTypes.has(this.node.type)) {
         this.addData("fig-page", this.node.id);
       }
+
+      const interactionAttributes =
+        this.settings.interactionAttributesByNodeId?.[this.node.id];
+      if (interactionAttributes) {
+        Object.entries(interactionAttributes)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .forEach(([label, value]) => {
+            this.addData(label, value === true ? undefined : String(value));
+          });
+      }
     }
 
     if ("componentProperties" in this.node && this.node.componentProperties) {
