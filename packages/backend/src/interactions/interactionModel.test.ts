@@ -55,6 +55,7 @@ test("maps supported prototype triggers to DOM events", () => {
   assert.equal(triggerTypeToDomEvent({ type: "ON_PRESS" }), "click");
   assert.equal(triggerTypeToDomEvent({ type: "ON_HOVER" }), "mouseenter");
   assert.equal(triggerTypeToDomEvent({ type: "MOUSE_LEAVE" }), "mouseleave");
+  assert.equal(triggerTypeToDomEvent({ type: "ON_DRAG" }), "pointerdown");
   assert.equal(triggerTypeToDomEvent({ type: "AFTER_TIMEOUT" }), null);
 });
 
@@ -210,4 +211,61 @@ test("change-to keeps the original instance shell for template variants", () => 
   assert.match(scripts, /target\.innerHTML = destination\.innerHTML/);
   assert.match(scripts, /data-fig-current-variant-id/);
   assert.doesNotMatch(scripts, /target\.replaceWith\(destination\)/);
+});
+
+test("change-to runtime animates smart-animate variants", () => {
+  const scripts = renderInteractionScripts({
+    version: 1,
+    initialPageId: null,
+    pages: [],
+    nodes: [],
+    reactions: [
+      {
+        sourceId: "button-right",
+        sourcePageId: null,
+        trigger: { type: "ON_CLICK" },
+        actions: [
+          {
+            type: "NODE",
+            destinationId: "variant-b",
+            navigation: "CHANGE_TO",
+            transition: {
+              type: "SMART_ANIMATE",
+              duration: 1,
+              easing: { type: "SLOW" },
+            },
+          },
+        ],
+      },
+      {
+        sourceId: "carousel",
+        sourcePageId: null,
+        trigger: { type: "ON_DRAG" },
+        actions: [
+          {
+            type: "NODE",
+            destinationId: "variant-c",
+            navigation: "CHANGE_TO",
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.match(scripts, /animateChangeTo/);
+  assert.match(scripts, /findChangeViewportPair/);
+  assert.match(scripts, /data-fig-change-viewport/);
+  assert.match(scripts, /data-fig-drag-viewport/);
+  assert.match(scripts, /isControlLikeLayer/);
+  assert.match(scripts, /createDragChangeState/);
+  assert.match(scripts, /finishDragChangeState/);
+  assert.match(scripts, /document\.addEventListener\("pointermove"/);
+  assert.match(scripts, /translate3d/);
+  assert.match(scripts, /cubic-bezier\(0\.2, 0, 0, 1\)/);
+  assert.match(scripts, /bindDragReaction/);
+  assert.match(
+    scripts,
+    /Math\.max\(Math\.abs\(deltaX\), Math\.abs\(deltaY\)\) < 24/,
+  );
+  assert.doesNotMatch(scripts, /setPointerCapture/);
 });

@@ -8,6 +8,7 @@ export const triggerDomEventByType: Record<string, string> = {
   MOUSE_LEAVE: "mouseleave",
   MOUSE_DOWN: "mousedown",
   MOUSE_UP: "mouseup",
+  ON_DRAG: "pointerdown",
 };
 
 export const triggerTypeToDomEvent = (
