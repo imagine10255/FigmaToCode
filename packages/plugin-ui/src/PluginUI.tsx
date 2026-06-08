@@ -43,8 +43,15 @@ type PluginUIProps = {
   previewPayload: IframePreviewPayload;
   previewRefreshKey: number;
   onPreviewUrlChanged?: (url: string) => void;
-  onDownloadHtmlZip?: (extractImages: boolean) => void;
-  onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
+  onDownloadHtmlZip?: (
+    extractImages: boolean,
+    interactiveHtmlExport: boolean,
+  ) => void;
+  onDownloadNode?: (
+    nodeId: string,
+    extractImages: boolean,
+    interactiveHtmlExport: boolean,
+  ) => void;
   onPreviewNode?: (nodeId: string) => void;
 };
 
@@ -89,13 +96,19 @@ const SelectionList = ({
   nodes,
   activePreviewNodeId,
   extractImages,
+  interactiveHtmlExport,
   onDownloadNode,
   onPreviewNode,
 }: {
   nodes: SelectionPreviewNode[];
   activePreviewNodeId: string | null;
   extractImages: boolean;
-  onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
+  interactiveHtmlExport: boolean;
+  onDownloadNode?: (
+    nodeId: string,
+    extractImages: boolean,
+    interactiveHtmlExport: boolean,
+  ) => void;
   onPreviewNode?: (nodeId: string) => void;
 }) => {
   if (nodes.length === 0) {
@@ -148,7 +161,11 @@ const SelectionList = ({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-colors hover:border-primary/50 hover:text-foreground"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDownloadNode?.(node.id, extractImages);
+                  onDownloadNode?.(
+                    node.id,
+                    extractImages,
+                    interactiveHtmlExport,
+                  );
                 }}
                 aria-label={`Download ${node.name}`}
                 title="Download"
@@ -168,6 +185,7 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [extractImages, setExtractImages] = useState(false);
+  const [interactiveHtmlExport, setInteractiveHtmlExport] = useState(false);
   const savedPreviewUrl =
     props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
   const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
@@ -295,7 +313,9 @@ export const PluginUI = (props: PluginUIProps) => {
       {props.onDownloadHtmlZip && selectionNodes.length > 0 && (
         <button
           type="button"
-          onClick={() => props.onDownloadHtmlZip?.(extractImages)}
+          onClick={() =>
+            props.onDownloadHtmlZip?.(extractImages, interactiveHtmlExport)
+          }
           className={
             compact
               ? "inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-foreground transition-colors hover:bg-muted"
@@ -379,6 +399,7 @@ export const PluginUI = (props: PluginUIProps) => {
                     nodes={selectionNodes}
                     activePreviewNodeId={props.activePreviewNodeId}
                     extractImages={extractImages}
+                    interactiveHtmlExport={interactiveHtmlExport}
                     onDownloadNode={props.onDownloadNode}
                     onPreviewNode={handlePreviewNode}
                   />
@@ -452,20 +473,35 @@ export const PluginUI = (props: PluginUIProps) => {
                 settingsPanel}
 
               {selectionNodes.length > 0 && (
-                <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={extractImages}
-                    onChange={(event) => setExtractImages(event.target.checked)}
-                  />
-                  Export images as files
-                </label>
+                <div className="grid w-full gap-2">
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={interactiveHtmlExport}
+                      onChange={(event) =>
+                        setInteractiveHtmlExport(event.target.checked)
+                      }
+                    />
+                    Interactive HTML
+                  </label>
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={extractImages}
+                      onChange={(event) =>
+                        setExtractImages(event.target.checked)
+                      }
+                    />
+                    Export images as files
+                  </label>
+                </div>
               )}
 
               <SelectionList
                 nodes={selectionNodes}
                 activePreviewNodeId={props.activePreviewNodeId}
                 extractImages={extractImages}
+                interactiveHtmlExport={interactiveHtmlExport}
                 onDownloadNode={props.onDownloadNode}
                 onPreviewNode={handlePreviewNode}
               />

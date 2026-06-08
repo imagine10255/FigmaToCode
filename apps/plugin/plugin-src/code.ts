@@ -4,12 +4,14 @@ import {
   tailwindMain,
   swiftuiMain,
   htmlMain,
+  interactiveHtmlMain,
   composeMain,
   postSettingsChanged,
 } from "backend";
 import { nodesToJSON } from "backend/src/altNodes/jsonNodeConversion";
 import { oldConvertNodesToAltNodes } from "backend/src/altNodes/oldAltConversion";
 import { retrieveGenericSolidUIColors } from "backend/src/common/retrieveUI/retrieveColors";
+import { collectInteractionDestinationIds } from "backend/src/interactions/interactionModel";
 import { flutterCodeGenTextStyles } from "backend/src/flutter/flutterMain";
 import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
 import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
@@ -50,6 +52,7 @@ export const defaultPluginSettings: PluginSettings = {
   embedImages: true,
   embedVectors: true,
   htmlGenerationMode: "html",
+  interactiveHtmlExport: false,
   tailwindGenerationMode: "jsx",
   baseFontSize: 16,
   useTailwind4: true,
@@ -122,8 +125,7 @@ const extractDataUrlAssets = (
   };
   const getDataLayerFromAttributes = (attributes: string) => {
     return (
-      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() ||
-      filePrefix
+      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() || filePrefix
     );
   };
   const createAssetPath = (
@@ -372,11 +374,7 @@ const getSceneNodeById = async (nodeId: string) => {
   return node as SceneNode;
 };
 
-const postHtmlZipProgress = (
-  current: number,
-  total: number,
-  label: string,
-) => {
+const postHtmlZipProgress = (current: number, total: number, label: string) => {
   figma.ui.postMessage({
     type: "html-zip-progress",
     current,
@@ -424,7 +422,7 @@ const getZipFileName = (
   const baseName =
     numericPrefixes.length > 0
       ? sanitizeFileName(numericPrefixes.join("_"), "figma-sections")
-    : "figma-sections";
+      : "figma-sections";
 
   return `${baseName}-${formatZipTimestamp()}.zip`;
 };
@@ -454,9 +452,80 @@ const getUniqueFileName = (fileName: string, usedFileNames: Set<string>) => {
   return nextFileName;
 };
 
+const collectNodeIds = (nodes: readonly SceneNode[]) => {
+  const ids = new Set<string>();
+  const visit = (node: any) => {
+    if (!node?.id) {
+      return;
+    }
+
+    ids.add(node.id);
+
+    if (Array.isArray(node.children)) {
+      node.children.forEach(visit);
+    }
+  };
+
+  nodes.forEach(visit);
+  return ids;
+};
+
+const getInteractionTemplateNodes = async (
+  convertedSelection: SceneNode[],
+  settings: PluginSettings,
+) => {
+  const exportedIds = collectNodeIds(convertedSelection);
+  const queuedDestinationIds =
+    collectInteractionDestinationIds(convertedSelection);
+  const processedDestinationIds = new Set<string>();
+  const templateNodes: SceneNode[] = [];
+
+  while (queuedDestinationIds.length > 0) {
+    const destinationId = queuedDestinationIds.shift();
+    if (
+      !destinationId ||
+      exportedIds.has(destinationId) ||
+      processedDestinationIds.has(destinationId)
+    ) {
+      continue;
+    }
+    processedDestinationIds.add(destinationId);
+
+    const destination = await figma.getNodeByIdAsync(destinationId);
+    if (
+      !destination ||
+      !("type" in destination) ||
+      !("visible" in destination)
+    ) {
+      continue;
+    }
+
+    const convertedDestination = settings.useOldPluginVersion2025
+      ? oldConvertNodesToAltNodes([destination as SceneNode], null)
+      : await nodesToJSON([destination as SceneNode], settings);
+    const convertedTemplateNodes = convertedDestination as SceneNode[];
+
+    templateNodes.push(...convertedTemplateNodes);
+    collectNodeIds(convertedTemplateNodes).forEach((id) => exportedIds.add(id));
+    collectInteractionDestinationIds(convertedTemplateNodes).forEach(
+      (nestedDestinationId) => {
+        if (
+          !exportedIds.has(nestedDestinationId) &&
+          !processedDestinationIds.has(nestedDestinationId)
+        ) {
+          queuedDestinationIds.push(nestedDestinationId);
+        }
+      },
+    );
+  }
+
+  return templateNodes;
+};
+
 const buildHtmlExportSections = async (
   settings: PluginSettings,
   extractImages: boolean,
+  interactiveHtmlExport: boolean,
   nodes?: readonly SceneNode[],
 ) => {
   const selectedNodes = nodes ?? figma.currentPage.selection;
@@ -469,6 +538,7 @@ const buildHtmlExportSections = async (
     ...settings,
     framework: "HTML",
     htmlGenerationMode: "html",
+    interactiveHtmlExport,
     embedImages: true,
   };
 
@@ -492,7 +562,18 @@ const buildHtmlExportSections = async (
     const convertedSelection = settings.useOldPluginVersion2025
       ? oldConvertNodesToAltNodes([node], null)
       : await nodesToJSON([node], exportSettings);
-    const result = await htmlMain(convertedSelection, exportSettings);
+    const convertedSceneNodes = convertedSelection as SceneNode[];
+    const templateNodes = interactiveHtmlExport
+      ? await getInteractionTemplateNodes(convertedSceneNodes, exportSettings)
+      : [];
+    const result = interactiveHtmlExport
+      ? await interactiveHtmlMain(
+          convertedSceneNodes,
+          exportSettings,
+          false,
+          templateNodes,
+        )
+      : await htmlMain(convertedSceneNodes, exportSettings);
     const assets: HtmlZipFile[] = [];
     const htmlWithAssets = extractImages
       ? extractDataUrlAssets(result.html, "image", assets)
@@ -526,6 +607,7 @@ const buildHtmlExportSections = async (
 const buildHtmlDownload = async (
   settings: PluginSettings,
   extractImages: boolean,
+  interactiveHtmlExport: boolean = false,
   nodeId?: string,
 ) => {
   const selectedNodes = nodeId
@@ -535,6 +617,7 @@ const buildHtmlDownload = async (
   const sections = await buildHtmlExportSections(
     settings,
     extractImages,
+    interactiveHtmlExport,
     selectedNodes,
   );
 
@@ -641,7 +724,10 @@ const buildHtmlPreviewForNode = async (
   const convertedSelection = settings.useOldPluginVersion2025
     ? oldConvertNodesToAltNodes([sceneNode], null)
     : await nodesToJSON([sceneNode], exportSettings);
-  const result = await htmlMain(convertedSelection, exportSettings);
+  const result = await htmlMain(
+    convertedSelection as SceneNode[],
+    exportSettings,
+  );
 
   return {
     nodeId: sceneNode.id,
@@ -696,10 +782,12 @@ const standardMode = async () => {
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
-        const { extractImages, nodeId } = msg as DownloadHtmlZipMessage;
+        const { extractImages, interactiveHtmlExport, nodeId } =
+          msg as DownloadHtmlZipMessage;
         const downloadData = await buildHtmlDownload(
           userPluginSettings,
           extractImages,
+          Boolean(interactiveHtmlExport),
           nodeId,
         );
         figma.ui.postMessage(downloadData);

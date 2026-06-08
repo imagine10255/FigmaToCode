@@ -261,39 +261,36 @@ export default function App() {
             downloadProgress: 0,
             downloadProgressLabel: "Compressing files...",
           }));
-          createZipBlob(
-            zipMessage.files,
-            (current, total, label) => {
+          createZipBlob(zipMessage.files, (current, total, label) => {
+            setState((prevState) => ({
+              ...prevState,
+              isDownloadLoading: true,
+              downloadProgress:
+                total > 0 ? 70 + Math.round((current / total) * 30) : 70,
+              downloadProgressLabel: label,
+            }));
+          })
+            .then((blob) => {
+              downloadBlob(blob, zipMessage.fileName);
               setState((prevState) => ({
                 ...prevState,
-                isDownloadLoading: true,
-                downloadProgress:
-                  total > 0
-                    ? 70 + Math.round((current / total) * 30)
-                    : 70,
-                downloadProgressLabel: label,
+                isDownloadLoading: false,
+                downloadProgress: 100,
+                downloadProgressLabel: "Download ready",
               }));
-            },
-          ).then((blob) => {
-            downloadBlob(blob, zipMessage.fileName);
-            setState((prevState) => ({
-              ...prevState,
-              isDownloadLoading: false,
-              downloadProgress: 100,
-              downloadProgressLabel: "Download ready",
-            }));
-          }).catch((error) => {
-            setState((prevState) => ({
-              ...prevState,
-              isDownloadLoading: false,
-              warnings: [
-                ...(prevState.warnings ?? []),
-                `Compression failed: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              ],
-            }));
-          });
+            })
+            .catch((error) => {
+              setState((prevState) => ({
+                ...prevState,
+                isDownloadLoading: false,
+                warnings: [
+                  ...(prevState.warnings ?? []),
+                  `Compression failed: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
+                ],
+              }));
+            });
           break;
 
         case "html-file-ready":
@@ -431,7 +428,7 @@ export default function App() {
             "*",
           );
         }}
-        onDownloadHtmlZip={(extractImages) => {
+        onDownloadHtmlZip={(extractImages, interactiveHtmlExport) => {
           setState((prevState) => ({
             ...prevState,
             isDownloadLoading: true,
@@ -443,12 +440,13 @@ export default function App() {
               pluginMessage: {
                 type: "download-html-zip",
                 extractImages,
+                interactiveHtmlExport,
               },
             },
             "*",
           );
         }}
-        onDownloadNode={(nodeId, extractImages) => {
+        onDownloadNode={(nodeId, extractImages, interactiveHtmlExport) => {
           setState((prevState) => ({
             ...prevState,
             isDownloadLoading: true,
@@ -460,6 +458,7 @@ export default function App() {
               pluginMessage: {
                 type: "download-html-zip",
                 extractImages,
+                interactiveHtmlExport,
                 nodeId,
               },
             },

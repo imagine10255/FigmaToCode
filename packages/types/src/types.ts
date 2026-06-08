@@ -7,6 +7,7 @@ export interface HTMLSettings {
   embedVectors: boolean;
   useColorVariables: boolean;
   htmlGenerationMode: "html" | "jsx" | "styled-components" | "svelte";
+  interactiveHtmlExport: boolean;
 }
 export interface TailwindSettings extends HTMLSettings {
   tailwindGenerationMode: "html" | "jsx" | "twig";
@@ -86,6 +87,7 @@ export type HtmlZipFile = {
 export type DownloadHtmlZipMessage = Message & {
   type: "download-html-zip";
   extractImages: boolean;
+  interactiveHtmlExport?: boolean;
   nodeId?: string;
 };
 export type HtmlZipReadyMessage = Message & {

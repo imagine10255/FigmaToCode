@@ -35,6 +35,14 @@ import {
   getComponentName,
 } from "./htmlMain";
 
+const pageNodeTypes = new Set([
+  "FRAME",
+  "COMPONENT",
+  "INSTANCE",
+  "COMPONENT_SET",
+  "SECTION",
+]);
+
 export class HtmlDefaultBuilder {
   styles: Array<string>;
   data: Array<string>;
@@ -451,6 +459,14 @@ export class HtmlDefaultBuilder {
       }
     }
 
+    if ((this.settings as any).interactiveHtmlExport && this.node.id) {
+      this.addData("fig-id", this.node.id);
+
+      if (!(this.node as any).parent && pageNodeTypes.has(this.node.type)) {
+        this.addData("fig-page", this.node.id);
+      }
+    }
+
     if ("componentProperties" in this.node && this.node.componentProperties) {
       Object.entries(this.node.componentProperties)
         ?.map((prop) => {
@@ -526,7 +542,11 @@ export class HtmlDefaultBuilder {
 
     const nodeName = (this.node as any).uniqueName || this.node.name;
 
-    const componentName = getComponentName(nodeName, this.cssClassName, element);
+    const componentName = getComponentName(
+      nodeName,
+      this.cssClassName,
+      element,
+    );
 
     cssCollection[this.cssClassName] = {
       styles: cssStyles,
