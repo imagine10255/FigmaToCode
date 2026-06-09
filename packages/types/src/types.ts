@@ -92,6 +92,7 @@ export type DownloadHtmlZipMessage = Message & {
   type: "download-html-zip";
   extractImages: boolean;
   interactiveHtmlExport?: boolean;
+  extractCodeAssets?: boolean;
   nodeId?: string;
 };
 export type HtmlZipReadyMessage = Message & {

@@ -109,11 +109,13 @@ const extractDataUrlAssets = (
   filePrefix: string,
   files: HtmlZipFile[],
 ) => {
+  const inlineOnlyDataLayer = "_HELP_CONTENT";
   const dataUrlPattern =
     /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g;
-  const tagPattern = /<([a-zA-Z][\w:-]*)([^<>]*data:image\/[^<>]*)>/g;
+  const tagPattern = /<\/?([a-zA-Z][\w:-]*)([^<>]*)>/g;
   const usedAssetPaths = new Set(files.map((file) => file.path));
   const assetPathByDataUrl = new Map<string, string>();
+  const inlineOnlyStack: boolean[] = [];
   const getShortHash = (value: string) => {
     let hash = 0;
 
@@ -149,8 +151,48 @@ const extractDataUrlAssets = (
     return assetPath;
   };
 
-  return content.replace(tagPattern, (tag, tagName, attributes) => {
+  return content.replace(tagPattern, (tag, tagName, attributes = "") => {
+    const normalizedTagName = tagName.toLowerCase();
+    const isClosingTag = tag.startsWith("</");
+    const isSelfClosingTag =
+      tag.endsWith("/>") ||
+      [
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+      ].includes(normalizedTagName);
+
+    if (isClosingTag) {
+      inlineOnlyStack.pop();
+      return tag;
+    }
+
+    const isInsideInlineOnlyLayer = inlineOnlyStack.some(Boolean);
+    const hasDataImage = attributes.includes("data:image/");
     const dataLayer = getDataLayerFromAttributes(attributes);
+    const startsInlineOnlyLayer = dataLayer === inlineOnlyDataLayer;
+    const shouldKeepImageInline =
+      normalizedTagName === "img" && isInsideInlineOnlyLayer && hasDataImage;
+
+    if (!isSelfClosingTag) {
+      inlineOnlyStack.push(isInsideInlineOnlyLayer || startsInlineOnlyLayer);
+    }
+
+    if (shouldKeepImageInline || !hasDataImage) {
+      return tag;
+    }
+
     const nextAttributes = attributes.replace(
       dataUrlPattern,
       (dataUrl, mimeType, base64) => {
@@ -177,16 +219,55 @@ const extractDataUrlAssets = (
   });
 };
 
-const wrapHtmlDocument = (title: string, body: string, css?: string) => {
+type HtmlDocumentAssets = {
+  cssHref?: string;
+  jsSrc?: string;
+};
+
+const extractInlineScripts = (html: string) => {
+  const scripts: string[] = [];
+  const htmlWithoutScripts = html.replace(
+    /<script(?![^>]*\btype=(["'])application\/json\1)[^>]*>([\s\S]*?)<\/script>/gi,
+    (_scriptTag, _quote, scriptContent: string) => {
+      const trimmedScript = scriptContent.trim();
+      if (trimmedScript) {
+        scripts.push(trimmedScript);
+      }
+
+      return "";
+    },
+  );
+
+  return {
+    html: htmlWithoutScripts,
+    js: scripts.join("\n\n"),
+  };
+};
+
+const wrapHtmlDocument = (
+  title: string,
+  body: string,
+  css?: string,
+  assets: HtmlDocumentAssets = {},
+) => {
+  const cssTag = assets.cssHref
+    ? `  <link rel="stylesheet" href="${escapeHtmlAttribute(assets.cssHref)}" />\n`
+    : css
+      ? `  <style>\n${css}\n  </style>\n`
+      : "";
+  const jsTag = assets.jsSrc
+    ? `\n<script src="${escapeHtmlAttribute(assets.jsSrc)}"></script>`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title.replace(/[<>&"]/g, "")}</title>
-${css ? `  <style>\n${css}\n  </style>\n` : ""}</head>
+${cssTag}</head>
 <body>
-${body}
+${body}${jsTag}
 </body>
 </html>`;
 };
@@ -361,6 +442,7 @@ type HtmlExportSection = {
   fileName: string;
   html: string;
   css?: string;
+  js?: string;
   assets: HtmlZipFile[];
 };
 
@@ -452,6 +534,8 @@ const getUniqueFileName = (fileName: string, usedFileNames: Set<string>) => {
   return nextFileName;
 };
 
+const getFileNameStem = (fileName: string) => fileName.replace(/\.[^.]+$/, "");
+
 const collectNodeIds = (nodes: readonly SceneNode[]) => {
   const ids = new Set<string>();
   const visit = (node: any) => {
@@ -526,6 +610,7 @@ const buildHtmlExportSections = async (
   settings: PluginSettings,
   extractImages: boolean,
   interactiveHtmlExport: boolean,
+  extractCodeAssets: boolean,
   nodes?: readonly SceneNode[],
 ) => {
   const selectedNodes = nodes ?? figma.currentPage.selection;
@@ -582,7 +667,11 @@ const buildHtmlExportSections = async (
     if (css && extractImages) {
       css = extractDataUrlAssets(css, "css-image", assets);
     }
-    const html = prepareHtmlForDownload(htmlWithAssets);
+    const preparedHtml = prepareHtmlForDownload(htmlWithAssets);
+    const extractedScripts = extractCodeAssets
+      ? extractInlineScripts(preparedHtml)
+      : null;
+    const html = extractedScripts?.html ?? preparedHtml;
     const dataLayer = getRootDataLayer(html);
     const fileName = `${sanitizeFileName(dataLayer, "help")}.html`;
 
@@ -592,6 +681,7 @@ const buildHtmlExportSections = async (
       fileName,
       html,
       css,
+      js: extractedScripts?.js,
       assets,
     });
     postHtmlZipProgress(
@@ -608,6 +698,7 @@ const buildHtmlDownload = async (
   settings: PluginSettings,
   extractImages: boolean,
   interactiveHtmlExport: boolean = false,
+  extractCodeAssets: boolean = false,
   nodeId?: string,
 ) => {
   const selectedNodes = nodeId
@@ -618,10 +709,11 @@ const buildHtmlDownload = async (
     settings,
     extractImages,
     interactiveHtmlExport,
+    extractCodeAssets,
     selectedNodes,
   );
 
-  if (!extractImages && sections.length === 1) {
+  if (!extractImages && !extractCodeAssets && sections.length === 1) {
     const section = sections[0];
 
     return {
@@ -635,18 +727,56 @@ const buildHtmlDownload = async (
   const usedFileNames = new Set<string>();
 
   for (const section of sections) {
-    const htmlFileName = extractImages
-      ? section.fileName
-      : getUniqueFileName(section.fileName, usedFileNames);
+    const htmlFileName =
+      extractImages || extractCodeAssets
+        ? section.fileName
+        : getUniqueFileName(section.fileName, usedFileNames);
+    const codeFileStem = getFileNameStem(htmlFileName);
+    const cssFileName = `${codeFileStem}.css`;
+    const jsFileName = `${codeFileStem}.js`;
+    const isFolderExport =
+      sections.length > 1 && (extractImages || extractCodeAssets);
+    const htmlPath = isFolderExport
+      ? `${section.folder}/${htmlFileName}`
+      : htmlFileName;
+    const cssPath = isFolderExport
+      ? `${section.folder}/${cssFileName}`
+      : cssFileName;
+    const jsPath = isFolderExport
+      ? `${section.folder}/${jsFileName}`
+      : jsFileName;
+    const cssHref = extractCodeAssets && section.css ? cssFileName : undefined;
+    const jsSrc = extractCodeAssets && section.js ? jsFileName : undefined;
 
     files.push({
-      path:
-        extractImages && sections.length > 1
-          ? `${section.folder}/${htmlFileName}`
-          : htmlFileName,
-      content: wrapHtmlDocument(section.name, section.html, section.css),
+      path: htmlPath,
+      content: wrapHtmlDocument(
+        section.name,
+        section.html,
+        extractCodeAssets ? undefined : section.css,
+        {
+          cssHref,
+          jsSrc,
+        },
+      ),
       encoding: "text",
     });
+
+    if (extractCodeAssets && section.css) {
+      files.push({
+        path: cssPath,
+        content: section.css,
+        encoding: "text",
+      });
+    }
+
+    if (extractCodeAssets && section.js) {
+      files.push({
+        path: jsPath,
+        content: section.js,
+        encoding: "text",
+      });
+    }
 
     if (extractImages) {
       files.push(
@@ -782,12 +912,17 @@ const standardMode = async () => {
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
-        const { extractImages, interactiveHtmlExport, nodeId } =
-          msg as DownloadHtmlZipMessage;
+        const {
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+          nodeId,
+        } = msg as DownloadHtmlZipMessage;
         const downloadData = await buildHtmlDownload(
           userPluginSettings,
           extractImages,
           Boolean(interactiveHtmlExport),
+          Boolean(extractCodeAssets),
           nodeId,
         );
         figma.ui.postMessage(downloadData);

@@ -428,7 +428,11 @@ export default function App() {
             "*",
           );
         }}
-        onDownloadHtmlZip={(extractImages, interactiveHtmlExport) => {
+        onDownloadHtmlZip={(
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+        ) => {
           setState((prevState) => ({
             ...prevState,
             isDownloadLoading: true,
@@ -441,12 +445,18 @@ export default function App() {
                 type: "download-html-zip",
                 extractImages,
                 interactiveHtmlExport,
+                extractCodeAssets,
               },
             },
             "*",
           );
         }}
-        onDownloadNode={(nodeId, extractImages, interactiveHtmlExport) => {
+        onDownloadNode={(
+          nodeId,
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+        ) => {
           setState((prevState) => ({
             ...prevState,
             isDownloadLoading: true,
@@ -459,6 +469,7 @@ export default function App() {
                 type: "download-html-zip",
                 extractImages,
                 interactiveHtmlExport,
+                extractCodeAssets,
                 nodeId,
               },
             },

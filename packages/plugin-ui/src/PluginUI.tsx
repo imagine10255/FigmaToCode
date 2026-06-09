@@ -46,11 +46,13 @@ type PluginUIProps = {
   onDownloadHtmlZip?: (
     extractImages: boolean,
     interactiveHtmlExport: boolean,
+    extractCodeAssets: boolean,
   ) => void;
   onDownloadNode?: (
     nodeId: string,
     extractImages: boolean,
     interactiveHtmlExport: boolean,
+    extractCodeAssets: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
 };
@@ -97,6 +99,7 @@ const SelectionList = ({
   activePreviewNodeId,
   extractImages,
   interactiveHtmlExport,
+  extractCodeAssets,
   onDownloadNode,
   onPreviewNode,
 }: {
@@ -104,10 +107,12 @@ const SelectionList = ({
   activePreviewNodeId: string | null;
   extractImages: boolean;
   interactiveHtmlExport: boolean;
+  extractCodeAssets: boolean;
   onDownloadNode?: (
     nodeId: string,
     extractImages: boolean,
     interactiveHtmlExport: boolean,
+    extractCodeAssets: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
 }) => {
@@ -165,6 +170,7 @@ const SelectionList = ({
                     node.id,
                     extractImages,
                     interactiveHtmlExport,
+                    extractCodeAssets,
                   );
                 }}
                 aria-label={`Download ${node.name}`}
@@ -185,6 +191,7 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [extractImages, setExtractImages] = useState(false);
+  const [extractCodeAssets, setExtractCodeAssets] = useState(false);
   const [interactiveHtmlExport, setInteractiveHtmlExport] = useState(false);
   const savedPreviewUrl =
     props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
@@ -314,7 +321,11 @@ export const PluginUI = (props: PluginUIProps) => {
         <button
           type="button"
           onClick={() =>
-            props.onDownloadHtmlZip?.(extractImages, interactiveHtmlExport)
+            props.onDownloadHtmlZip?.(
+              extractImages,
+              interactiveHtmlExport,
+              extractCodeAssets,
+            )
           }
           className={
             compact
@@ -400,6 +411,7 @@ export const PluginUI = (props: PluginUIProps) => {
                     activePreviewNodeId={props.activePreviewNodeId}
                     extractImages={extractImages}
                     interactiveHtmlExport={interactiveHtmlExport}
+                    extractCodeAssets={extractCodeAssets}
                     onDownloadNode={props.onDownloadNode}
                     onPreviewNode={handlePreviewNode}
                   />
@@ -494,6 +506,16 @@ export const PluginUI = (props: PluginUIProps) => {
                     />
                     Export images as files
                   </label>
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={extractCodeAssets}
+                      onChange={(event) =>
+                        setExtractCodeAssets(event.target.checked)
+                      }
+                    />
+                    Export CSS/JS as files
+                  </label>
                 </div>
               )}
 
@@ -502,6 +524,7 @@ export const PluginUI = (props: PluginUIProps) => {
                 activePreviewNodeId={props.activePreviewNodeId}
                 extractImages={extractImages}
                 interactiveHtmlExport={interactiveHtmlExport}
+                extractCodeAssets={extractCodeAssets}
                 onDownloadNode={props.onDownloadNode}
                 onPreviewNode={handlePreviewNode}
               />
