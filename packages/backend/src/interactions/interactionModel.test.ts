@@ -262,8 +262,12 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /ensureSwiperLoaded/);
   assert.match(scripts, /swiper-bundle\.min\.js/);
   assert.match(scripts, /initFigmaSwiperCarousels/);
+  assert.match(scripts, /function getFigmaInteractionModel/);
   assert.match(scripts, /function initializeFigmaInteractions/);
-  assert.match(scripts, /initializeFigmaInteractions\(\);/);
+  assert.match(
+    scripts,
+    /initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);/,
+  );
   assert.doesNotMatch(scripts, /__figmaSwiperDiagnostics/);
   assert.doesNotMatch(scripts, /__figmaInteractionDiagnostics/);
   assert.doesNotMatch(scripts, /__figmaInteractionModel/);

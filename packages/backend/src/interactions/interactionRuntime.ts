@@ -63,11 +63,16 @@ export const interactionRuntimeCSS = `
 `.trim();
 
 export const interactionRuntimeScript = `
-function initializeFigmaInteractions() {
+function getFigmaInteractionModel() {
   var modelElement = document.getElementById("figma-interaction-model");
-  if (!modelElement) return;
+  if (!modelElement) return null;
 
-  var model = JSON.parse(modelElement.textContent || "{}");
+  return JSON.parse(modelElement.textContent || "{}");
+}
+
+function initializeFigmaInteractions(model) {
+  if (!model) return;
+
   var nodeById = new Map((model.nodes || []).map(function (node) {
     return [node.id, node];
   }));
@@ -1750,6 +1755,6 @@ export const renderInteractionScripts = (model: InteractionModel): string => {
   return `<script type="application/json" id="figma-interaction-model">${serializedModel}</script>
 <script>
 ${interactionRuntimeScript}
-initializeFigmaInteractions();
+initializeFigmaInteractions(getFigmaInteractionModel());
 </script>`;
 };

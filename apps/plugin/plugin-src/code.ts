@@ -229,9 +229,14 @@ const deferImmediateScript = (script: string) => {
   const trimmedScript = script.trim();
   if (
     /\bfunction\s+initializeFigmaInteractions\s*\(/.test(trimmedScript) &&
-    /initializeFigmaInteractions\(\);\s*$/.test(trimmedScript)
+    /initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);\s*$/.test(
+      trimmedScript,
+    )
   ) {
-    return trimmedScript.replace(/\n?initializeFigmaInteractions\(\);\s*$/, "");
+    return trimmedScript.replace(
+      /\n?initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);\s*$/,
+      "",
+    );
   }
 
   if (!/^\(?function\b[\s\S]*\}\)\s*\(\s*\)\s*;?$/.test(trimmedScript)) {
@@ -284,7 +289,7 @@ const wrapHtmlDocument = (
     : "";
   const interactionInitTag =
     assets.jsSrc && assets.autoInitializeInteractions
-      ? `\n<script>\ninitializeFigmaInteractions();\n</script>`
+      ? `\n<script>\ninitializeFigmaInteractions(getFigmaInteractionModel());\n</script>`
       : "";
 
   return `<!DOCTYPE html>
@@ -298,6 +303,19 @@ ${cssTag}</head>
 ${body}${jsTag}${interactionInitTag}
 </body>
 </html>`;
+};
+
+const appendHelpControlCSS = (css?: string) => {
+  const helpControlCSS = `[data-layer="_HELP_NAV_PREV"],
+[data-layer="_HELP_NAV_NEXT"] {
+  z-index: 2;
+}
+
+[data-layer="_HELP_CLOSE_MODAL"] {
+  cursor: pointer;
+}`;
+
+  return [css, helpControlCSS].filter(Boolean).join("\n\n");
 };
 
 const formatDownloadTimestamp = () => {
@@ -689,7 +707,7 @@ const buildHtmlExportSections = async (
     const htmlWithAssets = extractImages
       ? extractDataUrlAssets(result.html, "image", assets)
       : result.html;
-    let css = result.css;
+    let css = appendHelpControlCSS(result.css);
     if (css && extractImages) {
       css = extractDataUrlAssets(css, "css-image", assets);
     }
