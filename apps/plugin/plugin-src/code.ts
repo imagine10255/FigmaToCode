@@ -222,6 +222,30 @@ const extractDataUrlAssets = (
 type HtmlDocumentAssets = {
   cssHref?: string;
   jsSrc?: string;
+  autoInitializeInteractions?: boolean;
+};
+
+const deferImmediateScript = (script: string) => {
+  const trimmedScript = script.trim();
+  if (
+    /\bfunction\s+initializeFigmaInteractions\s*\(/.test(trimmedScript) &&
+    /initializeFigmaInteractions\(\);\s*$/.test(trimmedScript)
+  ) {
+    return trimmedScript.replace(/\n?initializeFigmaInteractions\(\);\s*$/, "");
+  }
+
+  if (!/^\(?function\b[\s\S]*\}\)\s*\(\s*\)\s*;?$/.test(trimmedScript)) {
+    return trimmedScript;
+  }
+
+  return `(function (global) {
+  global.initializeFigmaInteractions = function initializeFigmaInteractions() {
+${script
+  .split("\n")
+  .map((line) => `    ${line}`)
+  .join("\n")}
+  };
+})(window);`;
 };
 
 const extractInlineScripts = (html: string) => {
@@ -231,7 +255,7 @@ const extractInlineScripts = (html: string) => {
     (_scriptTag, _quote, scriptContent: string) => {
       const trimmedScript = scriptContent.trim();
       if (trimmedScript) {
-        scripts.push(trimmedScript);
+        scripts.push(deferImmediateScript(trimmedScript));
       }
 
       return "";
@@ -258,6 +282,10 @@ const wrapHtmlDocument = (
   const jsTag = assets.jsSrc
     ? `\n<script src="${escapeHtmlAttribute(assets.jsSrc)}"></script>`
     : "";
+  const interactionInitTag =
+    assets.jsSrc && assets.autoInitializeInteractions
+      ? `\n<script>\ninitializeFigmaInteractions();\n</script>`
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -267,7 +295,7 @@ const wrapHtmlDocument = (
   <title>${title.replace(/[<>&"]/g, "")}</title>
 ${cssTag}</head>
 <body>
-${body}${jsTag}
+${body}${jsTag}${interactionInitTag}
 </body>
 </html>`;
 };
@@ -534,8 +562,6 @@ const getUniqueFileName = (fileName: string, usedFileNames: Set<string>) => {
   return nextFileName;
 };
 
-const getFileNameStem = (fileName: string) => fileName.replace(/\.[^.]+$/, "");
-
 const collectNodeIds = (nodes: readonly SceneNode[]) => {
   const ids = new Set<string>();
   const visit = (node: any) => {
@@ -699,6 +725,7 @@ const buildHtmlDownload = async (
   extractImages: boolean,
   interactiveHtmlExport: boolean = false,
   extractCodeAssets: boolean = false,
+  autoInitializeInteractions: boolean = true,
   nodeId?: string,
 ) => {
   const selectedNodes = nodeId
@@ -731,9 +758,8 @@ const buildHtmlDownload = async (
       extractImages || extractCodeAssets
         ? section.fileName
         : getUniqueFileName(section.fileName, usedFileNames);
-    const codeFileStem = getFileNameStem(htmlFileName);
-    const cssFileName = `${codeFileStem}.css`;
-    const jsFileName = `${codeFileStem}.js`;
+    const cssFileName = "styles.css";
+    const jsFileName = "script.js";
     const isFolderExport =
       sections.length > 1 && (extractImages || extractCodeAssets);
     const htmlPath = isFolderExport
@@ -745,8 +771,10 @@ const buildHtmlDownload = async (
     const jsPath = isFolderExport
       ? `${section.folder}/${jsFileName}`
       : jsFileName;
-    const cssHref = extractCodeAssets && section.css ? cssFileName : undefined;
-    const jsSrc = extractCodeAssets && section.js ? jsFileName : undefined;
+    const cssHref =
+      extractCodeAssets && section.css ? `./${cssFileName}` : undefined;
+    const jsSrc =
+      extractCodeAssets && section.js ? `./${jsFileName}` : undefined;
 
     files.push({
       path: htmlPath,
@@ -757,6 +785,7 @@ const buildHtmlDownload = async (
         {
           cssHref,
           jsSrc,
+          autoInitializeInteractions,
         },
       ),
       encoding: "text",
@@ -916,6 +945,7 @@ const standardMode = async () => {
           extractImages,
           interactiveHtmlExport,
           extractCodeAssets,
+          autoInitializeInteractions,
           nodeId,
         } = msg as DownloadHtmlZipMessage;
         const downloadData = await buildHtmlDownload(
@@ -923,6 +953,7 @@ const standardMode = async () => {
           extractImages,
           Boolean(interactiveHtmlExport),
           Boolean(extractCodeAssets),
+          autoInitializeInteractions !== false,
           nodeId,
         );
         figma.ui.postMessage(downloadData);

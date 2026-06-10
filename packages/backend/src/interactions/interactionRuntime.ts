@@ -63,7 +63,7 @@ export const interactionRuntimeCSS = `
 `.trim();
 
 export const interactionRuntimeScript = `
-(function () {
+function initializeFigmaInteractions() {
   var modelElement = document.getElementById("figma-interaction-model");
   if (!modelElement) return;
 
@@ -87,23 +87,8 @@ export const interactionRuntimeScript = `
     modes: {}
   };
   var diagnostics = {
-    bound: 0,
-    missingSources: [],
-    missingDestinations: [],
-    delegatedClicks: [],
-    pageShows: []
+    bound: 0
   };
-  var swiperDiagnostics = {
-    carouselDragSuppressed: [],
-    initialized: [],
-    skipped: [],
-    errors: []
-  };
-  var carouselDragSuppressedKeys = {};
-  window.__figmaInteractionModel = model;
-  window.__figmaInteractionState = state;
-  window.__figmaInteractionDiagnostics = diagnostics;
-  window.__figmaSwiperDiagnostics = swiperDiagnostics;
 
   document.addEventListener("dragstart", function (event) {
     if (event.target && event.target.closest && event.target.closest("[data-fig-id]")) {
@@ -290,7 +275,6 @@ export const interactionRuntimeScript = `
       if (destination && typeof destination.scrollIntoView === "function") {
         destination.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
       } else {
-        diagnostics.missingDestinations.push(pageId);
         console.warn("[Figma interactions] Destination was not exported or cannot be found:", pageId);
       }
       return;
@@ -303,10 +287,6 @@ export const interactionRuntimeScript = `
       history.push(currentPageId);
     }
 
-    diagnostics.pageShows.push({
-      from: currentPageId,
-      to: resolvedPageId
-    });
     currentPageId = resolvedPageId;
     getPages().forEach(function (page) {
       if (page !== previousPage && page !== nextPage) {
@@ -351,7 +331,6 @@ export const interactionRuntimeScript = `
     var existingDestination = findByData("data-fig-id", destinationId);
     var destination = getChangeDestination(destinationId, target);
     if (!destination) {
-      diagnostics.missingDestinations.push(destinationId);
       console.warn("[Figma interactions] CHANGE_TO destination was not exported or cannot be found:", destinationId);
       return;
     }
@@ -1094,26 +1073,6 @@ export const interactionRuntimeScript = `
     return null;
   }
 
-  function recordSwiperSkip(root, reason, extra) {
-    var rootId = root && root.getAttribute ? root.getAttribute("data-fig-id") : null;
-    var carouselId = root && root.getAttribute ? root.getAttribute("data-fig-carousel") : null;
-    var alreadyInitialized = swiperDiagnostics.initialized.some(function (entry) {
-      return entry.rootId === rootId && entry.carouselId === carouselId;
-    });
-    if (alreadyInitialized) return;
-
-    swiperDiagnostics.skipped.push(
-      Object.assign(
-        {
-          reason: reason,
-          rootId: rootId,
-          carouselId: carouselId
-        },
-        extra || {}
-      )
-    );
-  }
-
   function normalizeSwiperViewport(viewport, width, height) {
     var clone = viewport.cloneNode(false);
     clone.style.left = "0";
@@ -1160,12 +1119,10 @@ export const interactionRuntimeScript = `
 
   function initFigmaSwiperCarousel(root, SwiperConstructor) {
     if (!root) {
-      recordSwiperSkip(root, "missing-root");
       return;
     }
     if (root.__figmaSwiperInitialized) return;
     if (root.__figmaChangeToAnimating) {
-      recordSwiperSkip(root, "animating");
       return;
     }
 
@@ -1173,17 +1130,14 @@ export const interactionRuntimeScript = `
     var activeVariantId = root.getAttribute("data-fig-current-variant-id") || root.getAttribute("data-fig-id");
     var activeViewport = findCarouselViewport(root);
     if (!carouselId) {
-      recordSwiperSkip(root, "missing-carousel-id");
       return;
     }
     if (!activeViewport) {
-      recordSwiperSkip(root, "missing-viewport");
       return;
     }
 
     var slideRoots = getCarouselSlideRoots(carouselId, root);
     if (slideRoots.length < 2) {
-      recordSwiperSkip(root, "not-enough-slide-roots", { slideRoots: slideRoots.length });
       return;
     }
 
@@ -1252,7 +1206,6 @@ export const interactionRuntimeScript = `
     });
 
     if (wrapper.children.length < 2) {
-      recordSwiperSkip(root, "not-enough-rendered-slides", { renderedSlides: wrapper.children.length, slideRoots: slideRoots.length });
       return;
     }
 
@@ -1287,14 +1240,6 @@ export const interactionRuntimeScript = `
 
     root.__figmaSwiper = swiper;
     root.setAttribute("data-fig-swiper-ready", "");
-    swiperDiagnostics.initialized.push({
-      rootId: root.getAttribute("data-fig-id") || null,
-      carouselId: carouselId,
-      activeIndex: activeIndex,
-      height: swiper.height || viewportHeight || null,
-      slides: wrapper.children.length,
-      width: swiper.width || viewportWidth || null
-    });
 
     function getActiveSwiperSlideRoot() {
       var activeSlide =
@@ -1385,20 +1330,11 @@ export const interactionRuntimeScript = `
           try {
             initFigmaSwiperCarousel(root, SwiperConstructor);
           } catch (error) {
-            swiperDiagnostics.errors.push({
-              rootId: root && root.getAttribute ? root.getAttribute("data-fig-id") : null,
-              carouselId: root && root.getAttribute ? root.getAttribute("data-fig-carousel") : null,
-              message: error && error.message ? error.message : String(error)
-            });
             console.warn("[Figma interactions] Swiper carousel failed to initialize:", error);
           }
         });
       })
       .catch(function (error) {
-        swiperDiagnostics.errors.push({
-          reason: "load-failed",
-          message: error && error.message ? error.message : String(error)
-        });
         console.warn("[Figma interactions] Swiper failed to load. Carousel click interactions remain available, but Swiper drag is disabled.");
       });
   }
@@ -1606,17 +1542,6 @@ export const interactionRuntimeScript = `
     if (reaction.trigger.type === "ON_DRAG") {
       var dragSource = findSourceElement(reaction.sourceId);
       if (isCarouselRootElement(dragSource)) {
-        var rootId = dragSource && dragSource.getAttribute ? dragSource.getAttribute("data-fig-id") : null;
-        var carouselId = dragSource && dragSource.getAttribute ? dragSource.getAttribute("data-fig-carousel") : null;
-        var suppressKey = reaction.sourceId + ":" + rootId + ":" + carouselId;
-        if (!carouselDragSuppressedKeys[suppressKey]) {
-          carouselDragSuppressedKeys[suppressKey] = true;
-          swiperDiagnostics.carouselDragSuppressed.push({
-            sourceId: reaction.sourceId,
-            rootId: rootId,
-            carouselId: carouselId
-          });
-        }
         return;
       }
       bindDragReaction(reaction);
@@ -1792,10 +1717,6 @@ export const interactionRuntimeScript = `
           var action = (reaction.actions || []).find(function (candidate) {
             return candidate && candidate.type === "NODE" && candidate.destinationId && candidate.navigation !== "CHANGE_TO" && candidate.navigation !== "OVERLAY" && candidate.navigation !== "SCROLL_TO";
           });
-          diagnostics.delegatedClicks.push({
-            sourceId: sourceId,
-            destinationId: action && action.destinationId
-          });
           if (action) {
             showPage(action.destinationId, action.transition, action.navigation !== "SWAP");
           }
@@ -1820,7 +1741,7 @@ export const interactionRuntimeScript = `
   }
   initFigmaSwiperCarousels();
   schedulePageTimeouts();
-})();
+}
 `.trim();
 
 export const renderInteractionScripts = (model: InteractionModel): string => {
@@ -1829,5 +1750,6 @@ export const renderInteractionScripts = (model: InteractionModel): string => {
   return `<script type="application/json" id="figma-interaction-model">${serializedModel}</script>
 <script>
 ${interactionRuntimeScript}
+initializeFigmaInteractions();
 </script>`;
 };

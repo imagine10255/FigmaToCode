@@ -47,12 +47,14 @@ type PluginUIProps = {
     extractImages: boolean,
     interactiveHtmlExport: boolean,
     extractCodeAssets: boolean,
+    autoInitializeInteractions: boolean,
   ) => void;
   onDownloadNode?: (
     nodeId: string,
     extractImages: boolean,
     interactiveHtmlExport: boolean,
     extractCodeAssets: boolean,
+    autoInitializeInteractions: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
 };
@@ -100,6 +102,7 @@ const SelectionList = ({
   extractImages,
   interactiveHtmlExport,
   extractCodeAssets,
+  autoInitializeInteractions,
   onDownloadNode,
   onPreviewNode,
 }: {
@@ -108,11 +111,13 @@ const SelectionList = ({
   extractImages: boolean;
   interactiveHtmlExport: boolean;
   extractCodeAssets: boolean;
+  autoInitializeInteractions: boolean;
   onDownloadNode?: (
     nodeId: string,
     extractImages: boolean,
     interactiveHtmlExport: boolean,
     extractCodeAssets: boolean,
+    autoInitializeInteractions: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
 }) => {
@@ -171,6 +176,7 @@ const SelectionList = ({
                     extractImages,
                     interactiveHtmlExport,
                     extractCodeAssets,
+                    autoInitializeInteractions,
                   );
                 }}
                 aria-label={`Download ${node.name}`}
@@ -192,6 +198,8 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [extractImages, setExtractImages] = useState(false);
   const [extractCodeAssets, setExtractCodeAssets] = useState(false);
+  const [autoInitializeInteractions, setAutoInitializeInteractions] =
+    useState(true);
   const [interactiveHtmlExport, setInteractiveHtmlExport] = useState(false);
   const savedPreviewUrl =
     props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
@@ -325,6 +333,7 @@ export const PluginUI = (props: PluginUIProps) => {
               extractImages,
               interactiveHtmlExport,
               extractCodeAssets,
+              autoInitializeInteractions,
             )
           }
           className={
@@ -412,6 +421,7 @@ export const PluginUI = (props: PluginUIProps) => {
                     extractImages={extractImages}
                     interactiveHtmlExport={interactiveHtmlExport}
                     extractCodeAssets={extractCodeAssets}
+                    autoInitializeInteractions={autoInitializeInteractions}
                     onDownloadNode={props.onDownloadNode}
                     onPreviewNode={handlePreviewNode}
                   />
@@ -516,6 +526,18 @@ export const PluginUI = (props: PluginUIProps) => {
                     />
                     Export CSS/JS as files
                   </label>
+                  {interactiveHtmlExport && extractCodeAssets && (
+                    <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={autoInitializeInteractions}
+                        onChange={(event) =>
+                          setAutoInitializeInteractions(event.target.checked)
+                        }
+                      />
+                      Auto initialize interactions
+                    </label>
+                  )}
                 </div>
               )}
 
@@ -525,6 +547,7 @@ export const PluginUI = (props: PluginUIProps) => {
                 extractImages={extractImages}
                 interactiveHtmlExport={interactiveHtmlExport}
                 extractCodeAssets={extractCodeAssets}
+                autoInitializeInteractions={autoInitializeInteractions}
                 onDownloadNode={props.onDownloadNode}
                 onPreviewNode={handlePreviewNode}
               />
