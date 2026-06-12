@@ -6,7 +6,12 @@ import {
   normalizeReaction,
   serializeInteractionModel,
 } from "./interactionModel.ts";
-import { renderInteractionScripts } from "./interactionRuntime.ts";
+import {
+  interactionRuntimeScript,
+  renderInteractionInitScript,
+  renderInteractionScripts,
+  withPx2vwRatioScript,
+} from "./interactionRuntime.ts";
 import { triggerTypeToDomEvent } from "./triggerMapping.ts";
 
 test("normalizes reactions with the current actions array", () => {
@@ -127,41 +132,47 @@ test("fixture model emits click to navigate wiring", () => {
   assert.match(scripts, /"destinationId": "frame-b"/);
 });
 
-test("runtime includes best-effort variable and conditional handlers", () => {
-  const scripts = renderInteractionScripts({
-    version: 1,
-    initialPageId: null,
-    pages: [],
-    nodes: [],
-    reactions: [
-      {
-        sourceId: "button-a",
-        sourcePageId: null,
-        trigger: { type: "ON_CLICK" },
-        actions: [
-          {
-            type: "SET_VARIABLE",
-            variableId: "VariableID:1",
-            variableValue: { type: "BOOLEAN", value: true },
-          },
-          {
-            type: "CONDITIONAL",
-            conditionalBlocks: [
-              {
-                condition: { type: "BOOLEAN", value: true },
-                actions: [{ type: "CLOSE" }],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
+test("runtime omits handlers that P1 external script does not need", () => {
+  assert.doesNotMatch(interactionRuntimeScript, /state\.variables/);
+  assert.doesNotMatch(interactionRuntimeScript, /SET_VARIABLE/);
+  assert.doesNotMatch(interactionRuntimeScript, /CONDITIONAL/);
+  assert.doesNotMatch(interactionRuntimeScript, /evaluateExpression/);
+  assert.doesNotMatch(interactionRuntimeScript, /data-fig-overlay-root/);
+  assert.doesNotMatch(interactionRuntimeScript, /schedulePageTimeouts/);
+  assert.doesNotMatch(interactionRuntimeScript, /directionOffset/);
+});
 
-  assert.match(scripts, /state\.variables/);
-  assert.match(scripts, /SET_VARIABLE/);
-  assert.match(scripts, /CONDITIONAL/);
-  assert.match(scripts, /evaluateExpression/);
+test("P1 external script output includes px2vw bootstrap and trimmed Swiper runtime", () => {
+  const script = withPx2vwRatioScript(interactionRuntimeScript);
+  const scriptWithFileNewline = `${script}\n`;
+
+  assert.equal(script.length, 40441);
+  assert.equal(scriptWithFileNewline.length, 40442);
+  assert.match(script, /function getFigmaInteractionModel/);
+  assert.match(script, /function updatePx2VwRatio/);
+  assert.match(script, /window\.innerWidth \/ 1440/);
+  assert.match(script, /function initializeFigmaInteractions/);
+  assert.match(script, /autoHeight: true/);
+  assert.match(script, /slidesPerView: "auto"/);
+  assert.doesNotMatch(
+    script,
+    /initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);/,
+  );
+  assert.doesNotMatch(script, /dragstart/);
+  assert.doesNotMatch(script, /touchStartPreventDefault/);
+  assert.doesNotMatch(script, /swiper\.updateSize\(\)/);
+  assert.doesNotMatch(script, /activeIndexChange/);
+  assert.doesNotMatch(script, /touchEnd/);
+
+  assert.equal(
+    renderInteractionInitScript({ includePx2vwRatio: true }),
+    [
+      "updatePx2VwRatio();",
+      "window.addEventListener('resize', updatePx2VwRatio);",
+      "",
+      "initializeFigmaInteractions(getFigmaInteractionModel());",
+    ].join("\n"),
+  );
 });
 
 test("change-to keeps the original instance shell for template variants", () => {
@@ -258,7 +269,7 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /data-fig-change-viewport/);
   assert.doesNotMatch(scripts, /data-fig-drag-viewport/);
   assert.match(scripts, /isControlLikeLayer/);
-  assert.match(scripts, /dragstart/);
+  assert.doesNotMatch(scripts, /dragstart/);
   assert.match(scripts, /ensureSwiperLoaded/);
   assert.doesNotMatch(scripts, /swiper-bundle\.min\.js/);
   assert.match(scripts, /initFigmaSwiperCarousels/);
@@ -273,20 +284,25 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.doesNotMatch(scripts, /__figmaInteractionModel/);
   assert.match(scripts, /bindDelegatedNavigateReactions/);
   assert.match(scripts, /new SwiperConstructor/);
-  assert.match(scripts, /allowTouchMove: true/);
-  assert.match(scripts, /loop: false/);
-  assert.match(scripts, /preventInteractionOnTransition: false/);
-  assert.match(scripts, /simulateTouch: true/);
-  assert.match(scripts, /watchOverflow: false/);
+  assert.match(scripts, /autoHeight: true/);
+  assert.match(scripts, /slidesPerView: "auto"/);
+  assert.doesNotMatch(scripts, /allowTouchMove: true/);
+  assert.doesNotMatch(scripts, /loop: false/);
+  assert.doesNotMatch(scripts, /preventInteractionOnTransition: false/);
+  assert.doesNotMatch(scripts, /simulateTouch: true/);
+  assert.doesNotMatch(scripts, /touchStartPreventDefault: false/);
+  assert.doesNotMatch(scripts, /watchOverflow: false/);
+  assert.doesNotMatch(scripts, /swiperOptions\.width/);
+  assert.doesNotMatch(scripts, /swiper\.updateSize\(\)/);
   assert.match(scripts, /viewport\.cloneNode\(false\)/);
   assert.match(scripts, /sourcePagination/);
   assert.match(scripts, /getActiveSwiperSlideRoot/);
-  assert.match(scripts, /activeIndexChange/);
+  assert.doesNotMatch(scripts, /activeIndexChange/);
   assert.match(
     scripts,
     /templatePage\.setAttribute\("data-fig-page", pageId\)/,
   );
-  assert.match(scripts, /type: "INSTANT"/);
+  assert.doesNotMatch(scripts, /type: "INSTANT"/);
   assert.match(scripts, /usedIndexes/);
   assert.match(scripts, /root\.setAttribute\("data-fig-carousel"/);
   assert.match(scripts, /root\.setAttribute\("data-fig-carousel-index"/);

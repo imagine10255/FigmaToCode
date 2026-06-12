@@ -12,6 +12,10 @@ import { nodesToJSON } from "backend/src/altNodes/jsonNodeConversion";
 import { oldConvertNodesToAltNodes } from "backend/src/altNodes/oldAltConversion";
 import { retrieveGenericSolidUIColors } from "backend/src/common/retrieveUI/retrieveColors";
 import { collectInteractionDestinationIds } from "backend/src/interactions/interactionModel";
+import {
+  renderInteractionInitScript,
+  withPx2vwRatioScript,
+} from "backend/src/interactions/interactionRuntime";
 import { flutterCodeGenTextStyles } from "backend/src/flutter/flutterMain";
 import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
 import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
@@ -224,6 +228,7 @@ type HtmlDocumentAssets = {
   jsSrc?: string;
   autoInitializeInteractions?: boolean;
   includeSwiperAssets?: boolean;
+  includePx2vwRatio?: boolean;
 };
 
 const swiperCssUrl =
@@ -324,7 +329,9 @@ const wrapHtmlDocument = (
     : "";
   const interactionInitTag =
     assets.jsSrc && assets.autoInitializeInteractions
-      ? `\n<script>\ninitializeFigmaInteractions(getFigmaInteractionModel());\n</script>`
+      ? `\n<script>\n${renderInteractionInitScript({
+          includePx2vwRatio: assets.includePx2vwRatio,
+        })}\n</script>`
       : "";
 
   return `<!DOCTYPE html>
@@ -765,7 +772,7 @@ const buildHtmlExportSections = async (
       css: usePx2vw && css ? convertPxUnitsToPx2vw(css) : css,
       js:
         usePx2vw && extractedScripts?.js
-          ? convertPxUnitsToPx2vw(extractedScripts.js)
+          ? withPx2vwRatioScript(convertPxUnitsToPx2vw(extractedScripts.js))
           : extractedScripts?.js,
       usesSwiper: html.includes("data-fig-carousel-root"),
       assets,
@@ -851,6 +858,7 @@ const buildHtmlDownload = async (
           jsSrc,
           autoInitializeInteractions,
           includeSwiperAssets: section.usesSwiper,
+          includePx2vwRatio: usePx2vw && Boolean(section.js),
         },
       ),
       encoding: "text",

@@ -1,5 +1,4 @@
 import type { InteractionModel } from "./interactionTypes";
-import { triggerDomEventByType } from "./triggerMapping";
 
 const escapeScriptJson = (value: string) =>
   value
@@ -18,46 +17,33 @@ export const interactionRuntimeCSS = `
   box-sizing: border-box;
 }
 
-[data-fig-overlay-root] {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  pointer-events: none;
-}
-
-[data-fig-overlay-root] > * {
-  pointer-events: auto;
-}
-
-.figma-swiper,
-.figma-swiper .swiper-wrapper,
-.figma-swiper .swiper-slide {
-  width: 100%;
-  height: 100%;
-}
-
 .figma-swiper {
   display: block;
   overflow: hidden;
   position: relative;
   touch-action: pan-y;
   user-select: none;
+  width: 100%;
   z-index: 1;
 }
 
 .figma-swiper .swiper-wrapper {
   box-sizing: content-box;
   display: flex;
+  height: auto;
   position: relative;
   transition-property: transform;
+  width: 100%;
   z-index: 1;
 }
 
 .figma-swiper .swiper-slide {
   display: block;
+  height: auto;
   overflow: hidden;
   position: relative;
   flex-shrink: 0;
+  width: 100%;
   transition-property: transform;
 }
 `.trim();
@@ -80,31 +66,15 @@ function initializeFigmaInteractions(model) {
     return [node.id, node.pageId || null];
   }));
   var pageById = new Map();
-  var history = [];
-  var timeoutHandles = [];
   var currentPageId = model.initialPageId || null;
-  var overlayRoot = document.querySelector("[data-fig-overlay-root]");
-  var triggerEvents = ${JSON.stringify(triggerDomEventByType, null, 2)};
+  var triggerEvents = {
+  "ON_CLICK": "click",
+  "ON_PRESS": "click"
+};
   var runtimeTemplateById = new Map();
-  var state = {
-    variables: {},
-    modes: {}
-  };
   var diagnostics = {
     bound: 0
   };
-
-  document.addEventListener("dragstart", function (event) {
-    if (event.target && event.target.closest && event.target.closest("[data-fig-id]")) {
-      event.preventDefault();
-    }
-  });
-
-  if (!overlayRoot) {
-    overlayRoot = document.createElement("div");
-    overlayRoot.setAttribute("data-fig-overlay-root", "");
-    document.body.appendChild(overlayRoot);
-  }
 
   function elementsByData(name) {
     return Array.prototype.slice.call(document.querySelectorAll("[" + name + "]"));
@@ -164,28 +134,6 @@ function initializeFigmaInteractions(model) {
     return "ease";
   }
 
-  function directionOffset(direction) {
-    switch (direction) {
-      case "LEFT":
-        return ["100%", "0"];
-      case "RIGHT":
-        return ["-100%", "0"];
-      case "TOP":
-        return ["0", "100%"];
-      case "BOTTOM":
-        return ["0", "-100%"];
-      default:
-        return ["0", "0"];
-    }
-  }
-
-  function clearTimeouts() {
-    timeoutHandles.forEach(function (handle) {
-      window.clearTimeout(handle);
-    });
-    timeoutHandles = [];
-  }
-
   function setPageVisible(page, visible) {
     if (!page) return;
     if (visible) {
@@ -197,67 +145,13 @@ function initializeFigmaInteractions(model) {
     }
   }
 
-  function transitionPages(fromPage, toPage, transition, done) {
-    var duration = normalizeDuration(transition && transition.duration);
-    var easing = easingToCSS(transition && transition.easing);
-    var type = transition && transition.type;
-
-    if (!fromPage || !toPage || duration <= 0 || type === "INSTANT") {
-      if (fromPage) setPageVisible(fromPage, false);
-      setPageVisible(toPage, true);
-      done();
-      return;
-    }
-
+  function transitionPages(fromPage, toPage) {
+    if (!toPage) return;
+    if (fromPage) setPageVisible(fromPage, false);
     setPageVisible(toPage, true);
-    fromPage.style.transition = "opacity " + duration + "ms " + easing + ", transform " + duration + "ms " + easing;
-    toPage.style.transition = "opacity " + duration + "ms " + easing + ", transform " + duration + "ms " + easing;
-    fromPage.style.opacity = "1";
-    toPage.style.opacity = "0";
-
-    if (type === "MOVE_IN" || type === "MOVE_OUT" || type === "PUSH" || type === "SLIDE_IN" || type === "SLIDE_OUT") {
-      var offset = directionOffset(transition.direction);
-      toPage.style.transform = "translate(" + offset[0] + ", " + offset[1] + ")";
-      window.requestAnimationFrame(function () {
-        fromPage.style.opacity = type === "PUSH" ? "1" : "0";
-        fromPage.style.transform = type === "PUSH" ? "translate(" + (offset[0].charAt(0) === "-" ? "100%" : "-100%") + ", " + (offset[1].charAt(0) === "-" ? "100%" : "-100%") + ")" : "translate(0, 0)";
-        toPage.style.opacity = "1";
-        toPage.style.transform = "translate(0, 0)";
-      });
-    } else {
-      // SMART_ANIMATE is approximated as dissolve here. Full Figma parity requires layer geometry that static HTML cannot always preserve.
-      window.requestAnimationFrame(function () {
-        fromPage.style.opacity = "0";
-        toPage.style.opacity = "1";
-      });
-    }
-
-    window.setTimeout(function () {
-      setPageVisible(fromPage, false);
-      fromPage.style.transition = "";
-      fromPage.style.opacity = "";
-      fromPage.style.transform = "";
-      toPage.style.transition = "";
-      toPage.style.opacity = "";
-      toPage.style.transform = "";
-      done();
-    }, duration);
   }
 
-  function schedulePageTimeouts() {
-    clearTimeouts();
-    (model.reactions || []).forEach(function (reaction) {
-      if (!reaction.trigger || reaction.trigger.type !== "AFTER_TIMEOUT") return;
-      if (reaction.sourcePageId && reaction.sourcePageId !== currentPageId) return;
-
-      var timeout = reaction.trigger.timeout || reaction.trigger.delay || 0;
-      timeoutHandles.push(window.setTimeout(function () {
-        runActions(reaction.actions || [], reaction);
-      }, timeout));
-    });
-  }
-
-  function showPage(pageId, transition, pushHistory) {
+  function showPage(pageId, transition) {
     refreshPages();
     var resolvedPageId = pageById.has(pageId) ? pageId : nodePageById.get(pageId);
     var nextPage = resolvedPageId ? pageById.get(resolvedPageId) : null;
@@ -266,7 +160,7 @@ function initializeFigmaInteractions(model) {
       if (templatePage) {
         templatePage.setAttribute("data-fig-page", pageId);
         templatePage.hidden = true;
-        document.body.insertBefore(templatePage, overlayRoot);
+        document.body.appendChild(templatePage);
         refreshPages();
         resolvedPageId = templatePage.getAttribute("data-fig-page") || pageId;
         nextPage = pageById.get(resolvedPageId);
@@ -287,47 +181,13 @@ function initializeFigmaInteractions(model) {
     var previousPage = currentPageId ? pageById.get(currentPageId) : null;
     if (previousPage === nextPage) return;
 
-    if (pushHistory && currentPageId) {
-      history.push(currentPageId);
-    }
-
     currentPageId = resolvedPageId;
     getPages().forEach(function (page) {
       if (page !== previousPage && page !== nextPage) {
         setPageVisible(page, false);
       }
     });
-    transitionPages(previousPage, nextPage, { type: "INSTANT", duration: 0 }, schedulePageTimeouts);
-  }
-
-  function showOverlay(destinationId, action) {
-    var destination = pageById.get(destinationId) || pageById.get(nodePageById.get(destinationId)) || findByData("data-fig-id", destinationId);
-    if (!destination) return;
-
-    var clone = destination.cloneNode(true);
-    clone.hidden = false;
-    clone.removeAttribute("aria-hidden");
-    clone.removeAttribute("data-fig-page");
-    clone.setAttribute("data-fig-overlay", destinationId);
-    clone.style.position = "absolute";
-
-    if (action.overlayRelativePosition) {
-      clone.style.left = action.overlayRelativePosition.x + "px";
-      clone.style.top = action.overlayRelativePosition.y + "px";
-    } else {
-      clone.style.left = "50%";
-      clone.style.top = "50%";
-      clone.style.transform = "translate(-50%, -50%)";
-    }
-
-    overlayRoot.appendChild(clone);
-  }
-
-  function closeOverlay() {
-    var lastOverlay = overlayRoot.lastElementChild;
-    if (lastOverlay) {
-      lastOverlay.remove();
-    }
+    transitionPages(previousPage, nextPage);
   }
 
   function changeTo(destinationId, action) {
@@ -934,21 +794,23 @@ function initializeFigmaInteractions(model) {
     clone.style.right = "";
     clone.style.bottom = "";
     clone.style.position = "relative";
-    clone.style.width = width ? width + "px" : "100%";
-    clone.style.height = height ? height + "px" : "100%";
+    if (!clone.style.width) clone.style.width = width ? width + "px" : "100%";
+    if (!clone.style.height && height) clone.style.height = height + "px";
     clone.style.maxWidth = "none";
     clone.style.minWidth = "0";
     clone.innerHTML = "";
 
-    var viewportWidth = width || parsePixelValue(viewport.style.width) || 0;
-    var viewportHeight = height || parsePixelValue(viewport.style.height) || 0;
+    var viewportRect = viewport.getBoundingClientRect();
+    var viewportWidth = width || viewportRect.width || parsePixelValue(viewport.style.width) || 0;
+    var viewportHeight = height || viewportRect.height || parsePixelValue(viewport.style.height) || 0;
     var appended = false;
 
     Array.prototype.slice.call(viewport.children || []).forEach(function (child) {
-      var left = parsePixelValue(child.style.left) || 0;
-      var top = parsePixelValue(child.style.top) || 0;
-      var childWidth = parsePixelValue(child.style.width) || child.getBoundingClientRect().width || viewportWidth;
-      var childHeight = parsePixelValue(child.style.height) || child.getBoundingClientRect().height || viewportHeight;
+      var childRect = child.getBoundingClientRect();
+      var left = childRect.left - viewportRect.left;
+      var top = childRect.top - viewportRect.top;
+      var childWidth = childRect.width || parsePixelValue(child.style.width) || viewportWidth;
+      var childHeight = childRect.height || parsePixelValue(child.style.height) || viewportHeight;
       var right = left + childWidth;
       var bottom = top + childHeight;
       var visible = right > 0 && bottom > 0 && left < viewportWidth && top < viewportHeight;
@@ -956,8 +818,8 @@ function initializeFigmaInteractions(model) {
       if (!visible) return;
 
       var childClone = child.cloneNode(true);
-      childClone.style.left = left + "px";
-      childClone.style.top = top + "px";
+      if (!childClone.style.left) childClone.style.left = left + "px";
+      if (!childClone.style.top) childClone.style.top = top + "px";
       clone.appendChild(childClone);
       appended = true;
     });
@@ -1022,15 +884,12 @@ function initializeFigmaInteractions(model) {
     wrapper.className = "swiper-wrapper";
     swiperEl.style.cssText = activeViewport.style.cssText;
     swiperEl.style.display = "block";
-    if (viewportWidth) swiperEl.style.width = viewportWidth + "px";
-    if (viewportHeight) swiperEl.style.height = viewportHeight + "px";
+    swiperEl.style.height = "auto";
     swiperEl.style.overflow = "hidden";
     swiperEl.style.position = swiperEl.style.position || "relative";
-    swiperEl.style.touchAction = "pan-y";
-    swiperEl.style.userSelect = "none";
     wrapper.style.boxSizing = "content-box";
     wrapper.style.display = "flex";
-    wrapper.style.height = "100%";
+    wrapper.style.height = "auto";
     wrapper.style.position = "relative";
     wrapper.style.transitionProperty = "transform";
     wrapper.style.width = "100%";
@@ -1050,11 +909,11 @@ function initializeFigmaInteractions(model) {
       slide.style.display = "block";
       slide.style.overflow = "hidden";
       slide.style.position = "relative";
-      slide.style.width = viewportWidth ? viewportWidth + "px" : "100%";
-      slide.style.height = viewportHeight ? viewportHeight + "px" : "100%";
+      slide.style.width = "100%";
+      slide.style.height = "auto";
       slide.style.flexShrink = "0";
-      if (viewportWidth) slide.style.minWidth = viewportWidth + "px";
-      if (viewportHeight) slide.style.minHeight = viewportHeight + "px";
+      slide.style.minWidth = "0";
+      slide.style.minHeight = "0";
       slide.appendChild(normalizeSwiperViewport(viewport, viewportWidth, viewportHeight));
       wrapper.appendChild(slide);
     });
@@ -1068,29 +927,16 @@ function initializeFigmaInteractions(model) {
     root.__figmaSwiperInitialized = true;
 
     var swiperOptions = {
-      allowTouchMove: true,
+      autoHeight: true,
       grabCursor: true,
       initialSlide: activeIndex,
-      loop: false,
-      preventInteractionOnTransition: false,
       resistanceRatio: 0,
-      simulateTouch: true,
-      slidesPerView: 1,
+      slidesPerView: "auto",
       speed: 420,
-      threshold: 8,
-      touchMoveStopPropagation: false,
-      touchStartPreventDefault: false,
-      watchOverflow: false
+      threshold: 8
     };
-    if (viewportWidth) {
-      swiperOptions.width = viewportWidth;
-    }
 
     var swiper = new SwiperConstructor(swiperEl, swiperOptions);
-    swiper.updateSize();
-    swiper.updateSlides();
-    swiper.updateProgress();
-    swiper.updateSlidesClasses();
 
     root.__figmaSwiper = swiper;
     root.setAttribute("data-fig-swiper-ready", "");
@@ -1153,10 +999,6 @@ function initializeFigmaInteractions(model) {
       root.__figmaChangeToAnimating = true;
     });
 
-    swiper.on("activeIndexChange", function () {
-      syncSwiperCarouselState();
-    });
-
     swiper.on("slideChange", function () {
       syncSwiperCarouselState();
     });
@@ -1164,14 +1006,6 @@ function initializeFigmaInteractions(model) {
     swiper.on("slideChangeTransitionEnd", function () {
       root.__figmaChangeToAnimating = false;
       syncSwiperCarouselState();
-    });
-
-    swiper.on("touchEnd", function () {
-      window.setTimeout(function () {
-        if (swiper.activeIndex === activeIndex) {
-          root.__figmaChangeToAnimating = false;
-        }
-      }, 0);
     });
 
     syncSwiperCarouselState();
@@ -1234,134 +1068,13 @@ function initializeFigmaInteractions(model) {
   function runAction(action, reaction) {
     if (!action || !action.type) return;
 
-    if (action.type === "SET_VARIABLE" && action.variableId) {
-      state.variables[action.variableId] = resolveVariableData(action.variableValue);
-      updateBoundStateElements(action.variableId, state.variables[action.variableId]);
-      return;
-    }
-
-    if (action.type === "SET_VARIABLE_MODE" && action.variableCollectionId) {
-      state.modes[action.variableCollectionId] = action.variableModeId || null;
-      return;
-    }
-
-    if (action.type === "CONDITIONAL" && Array.isArray(action.conditionalBlocks)) {
-      for (var blockIndex = 0; blockIndex < action.conditionalBlocks.length; blockIndex += 1) {
-        var block = action.conditionalBlocks[blockIndex];
-        if (!block.condition || Boolean(resolveVariableData(block.condition))) {
-          runActions(block.actions || [], reaction);
-          break;
-        }
-      }
-      return;
-    }
-
-    if (action.type === "URL" && action.url) {
-      var opened = window.open(action.url, "_blank", "noopener");
-      if (!opened) window.location.href = action.url;
-      return;
-    }
-
-    if (action.type === "BACK") {
-      var previousPageId = history.pop();
-      if (previousPageId) showPage(previousPageId, action.transition, false);
-      return;
-    }
-
-    if (action.type === "CLOSE") {
-      closeOverlay();
-      return;
-    }
-
     if (action.type === "NODE" && action.destinationId) {
-      if (action.navigation === "OVERLAY") {
-        showOverlay(action.destinationId, action);
-      } else if (action.navigation === "SCROLL_TO") {
-        var target = findByData("data-fig-id", action.destinationId);
-        if (target && typeof target.scrollIntoView === "function") {
-          target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-        }
-      } else if (action.navigation === "CHANGE_TO") {
+      if (action.navigation === "CHANGE_TO") {
         changeTo.call(reaction, action.destinationId, action);
       } else {
-        showPage(action.destinationId, action.transition, action.navigation !== "SWAP");
+        showPage(action.destinationId, action.transition);
       }
     }
-  }
-
-  function resolveVariableData(data) {
-    if (!data || typeof data !== "object") return data;
-
-    if (data.type === "VARIABLE_ALIAS" && data.id) {
-      return state.variables[data.id];
-    }
-
-    if (data.value && typeof data.value === "object" && data.value.type === "VARIABLE_ALIAS") {
-      return state.variables[data.value.id];
-    }
-
-    if (data.value && typeof data.value === "object" && data.value.expressionFunction) {
-      return evaluateExpression(data.value);
-    }
-
-    if (data.expressionFunction) {
-      return evaluateExpression(data);
-    }
-
-    return "value" in data ? data.value : data;
-  }
-
-  function evaluateExpression(expression) {
-    var args = (expression.expressionArguments || []).map(resolveVariableData);
-
-    switch (expression.expressionFunction) {
-      case "ADDITION":
-        return args.reduce(function (sum, value) { return sum + Number(value || 0); }, 0);
-      case "SUBTRACTION":
-        return Number(args[0] || 0) - Number(args[1] || 0);
-      case "MULTIPLICATION":
-        return args.reduce(function (product, value) { return product * Number(value || 0); }, 1);
-      case "DIVISION":
-        return Number(args[0] || 0) / Number(args[1] || 1);
-      case "EQUALS":
-        return args[0] === args[1];
-      case "NOT_EQUAL":
-        return args[0] !== args[1];
-      case "LESS_THAN":
-        return Number(args[0]) < Number(args[1]);
-      case "LESS_THAN_OR_EQUAL":
-        return Number(args[0]) <= Number(args[1]);
-      case "GREATER_THAN":
-        return Number(args[0]) > Number(args[1]);
-      case "GREATER_THAN_OR_EQUAL":
-        return Number(args[0]) >= Number(args[1]);
-      case "AND":
-        return args.every(Boolean);
-      case "OR":
-        return args.some(Boolean);
-      case "NEGATE":
-        return -Number(args[0] || 0);
-      case "NOT":
-        return !args[0];
-      case "VAR_MODE_LOOKUP":
-        return state.modes[String(args[0])] || null;
-      default:
-        return args[0];
-    }
-  }
-
-  function updateBoundStateElements(variableId, value) {
-    elementsByData("data-fig-variable").forEach(function (element) {
-      if (element.getAttribute("data-fig-variable") !== variableId) return;
-
-      if (element.hasAttribute("data-fig-visible-when")) {
-        element.hidden = String(value) !== element.getAttribute("data-fig-visible-when");
-      }
-
-      if (element.hasAttribute("data-fig-text-variable")) {
-        element.textContent = value == null ? "" : String(value);
-      }
-    });
   }
 
   function runActions(actions, reaction) {
@@ -1376,19 +1089,6 @@ function initializeFigmaInteractions(model) {
 
   function bindReaction(reaction) {
     if (!reaction.trigger) return;
-
-    if (reaction.trigger.type === "AFTER_TIMEOUT") {
-      return;
-    }
-
-    if (reaction.trigger.type === "ON_KEY_DOWN") {
-      document.addEventListener("keydown", function (event) {
-        var keyCodes = reaction.trigger.keyCodes || [];
-        if (keyCodes.length > 0 && keyCodes.indexOf(event.keyCode) === -1) return;
-        runActions(reaction.actions || [], reaction);
-      });
-      return;
-    }
 
     if (reaction.trigger.type === "ON_DRAG") {
       return;
@@ -1409,14 +1109,7 @@ function initializeFigmaInteractions(model) {
     source.style.cursor = source.style.cursor || "pointer";
     source.addEventListener(eventName, function () {
       if (!isReactionActiveForSource(reaction, source)) return;
-      var delay = reaction.trigger.delay || 0;
-      if (delay > 0) {
-        window.setTimeout(function () {
-          runActions(reaction.actions || [], reaction);
-        }, delay);
-      } else {
-        runActions(reaction.actions || [], reaction);
-      }
+      runActions(reaction.actions || [], reaction);
     });
     diagnostics.bound += 1;
   }
@@ -1427,7 +1120,7 @@ function initializeFigmaInteractions(model) {
 
   function hasNavigateAction(reaction) {
     return (reaction.actions || []).some(function (action) {
-      return action && action.type === "NODE" && action.destinationId && action.navigation !== "CHANGE_TO" && action.navigation !== "OVERLAY" && action.navigation !== "SCROLL_TO";
+      return action && action.type === "NODE" && action.destinationId && action.navigation !== "CHANGE_TO";
     });
   }
 
@@ -1455,10 +1148,10 @@ function initializeFigmaInteractions(model) {
           event.preventDefault();
           event.stopPropagation();
           var action = (reaction.actions || []).find(function (candidate) {
-            return candidate && candidate.type === "NODE" && candidate.destinationId && candidate.navigation !== "CHANGE_TO" && candidate.navigation !== "OVERLAY" && candidate.navigation !== "SCROLL_TO";
+            return candidate && candidate.type === "NODE" && candidate.destinationId && candidate.navigation !== "CHANGE_TO";
           });
           if (action) {
-            showPage(action.destinationId, action.transition, action.navigation !== "SWAP");
+            showPage(action.destinationId, action.transition);
           }
           return;
         }
@@ -1480,9 +1173,41 @@ function initializeFigmaInteractions(model) {
     console.warn("[Figma interactions] Prototype reactions exist, but no DOM listeners were bound.", diagnostics);
   }
   initFigmaSwiperCarousels();
-  schedulePageTimeouts();
 }
 `.trim();
+
+export const px2vwRatioScript = `
+function updatePx2VwRatio() {
+  const px2vwRatio = window.innerWidth / 1440;
+  document.documentElement.style.setProperty('--px2vw-ratio', px2vwRatio);
+}
+`.trim();
+
+export const px2vwRatioInitScript = `
+updatePx2VwRatio();
+window.addEventListener('resize', updatePx2VwRatio);
+`.trim();
+
+export const withPx2vwRatioScript = (script: string): string => {
+  if (script.includes("function updatePx2VwRatio")) {
+    return script;
+  }
+
+  return script.replace(
+    "\n\nfunction initializeFigmaInteractions",
+    `\n\n${px2vwRatioScript}\n\nfunction initializeFigmaInteractions`,
+  );
+};
+
+export const renderInteractionInitScript = (
+  options: { includePx2vwRatio?: boolean } = {},
+): string =>
+  [
+    options.includePx2vwRatio ? px2vwRatioInitScript : "",
+    "initializeFigmaInteractions(getFigmaInteractionModel());",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 export const renderInteractionScripts = (model: InteractionModel): string => {
   const serializedModel = escapeScriptJson(JSON.stringify(model, null, 2));
@@ -1490,6 +1215,6 @@ export const renderInteractionScripts = (model: InteractionModel): string => {
   return `<script type="application/json" id="figma-interaction-model">${serializedModel}</script>
 <script>
 ${interactionRuntimeScript}
-initializeFigmaInteractions(getFigmaInteractionModel());
+${renderInteractionInitScript()}
 </script>`;
 };
