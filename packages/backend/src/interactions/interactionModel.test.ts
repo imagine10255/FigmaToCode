@@ -256,7 +256,7 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /animateChangeTo/);
   assert.match(scripts, /findChangeViewportPair/);
   assert.match(scripts, /data-fig-change-viewport/);
-  assert.match(scripts, /data-fig-drag-viewport/);
+  assert.doesNotMatch(scripts, /data-fig-drag-viewport/);
   assert.match(scripts, /isControlLikeLayer/);
   assert.match(scripts, /dragstart/);
   assert.match(scripts, /ensureSwiperLoaded/);
@@ -290,18 +290,18 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /usedIndexes/);
   assert.match(scripts, /root\.setAttribute\("data-fig-carousel"/);
   assert.match(scripts, /root\.setAttribute\("data-fig-carousel-index"/);
-  assert.match(scripts, /getDirectionalChangeAction/);
+  assert.doesNotMatch(scripts, /getDirectionalChangeAction/);
   assert.match(scripts, /inferNodeDirection/);
   assert.match(scripts, /runtimeTemplateById/);
   assert.match(scripts, /buildLinearDragChain/);
-  assert.match(scripts, /cloneActionWithDestination/);
-  assert.match(scripts, /createDragChangeState/);
-  assert.match(scripts, /finishDragChangeState/);
-  assert.match(scripts, /document\.addEventListener\("pointermove"/);
+  assert.doesNotMatch(scripts, /cloneActionWithDestination/);
+  assert.doesNotMatch(scripts, /createDragChangeState/);
+  assert.doesNotMatch(scripts, /finishDragChangeState/);
+  assert.doesNotMatch(scripts, /document\.addEventListener\("pointermove"/);
   assert.match(scripts, /translate3d/);
   assert.match(scripts, /cubic-bezier\(0\.2, 0, 0, 1\)/);
-  assert.match(scripts, /bindDragReaction/);
-  assert.match(
+  assert.doesNotMatch(scripts, /bindDragReaction/);
+  assert.doesNotMatch(
     scripts,
     /Math\.max\(Math\.abs\(deltaX\), Math\.abs\(deltaY\)\) < 24/,
   );

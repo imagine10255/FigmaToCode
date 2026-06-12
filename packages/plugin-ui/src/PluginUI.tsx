@@ -61,6 +61,7 @@ type PluginUIProps = {
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
 const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
+const PANEL_VERSION = "v260612-1539";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
@@ -408,6 +409,9 @@ export const PluginUI = (props: PluginUIProps) => {
                     <span className="ml-2 text-xs font-medium text-muted-foreground">
                       {selectionNodes.length}
                     </span>
+                    <span className="ml-2 text-[10px] font-semibold text-primary">
+                      {PANEL_VERSION}
+                    </span>
                   </p>
                   {renderSelectionHeaderActions(true)}
                 </div>
@@ -485,6 +489,9 @@ export const PluginUI = (props: PluginUIProps) => {
                   Selected Frames
                   <span className="ml-2 text-sm font-medium text-muted-foreground">
                     {selectionNodes.length}
+                  </span>
+                  <span className="ml-2 text-[10px] font-semibold text-primary">
+                    {PANEL_VERSION}
                   </span>
                 </p>
                 {renderSelectionHeaderActions()}
