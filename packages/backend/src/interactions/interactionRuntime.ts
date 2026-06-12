@@ -434,6 +434,32 @@ function initializeFigmaInteractions(model) {
     );
   }
 
+  function isCarouselPrevControl(control) {
+    var dataLayer = control.getAttribute("data-layer") || "";
+    return (
+      control.hasAttribute("data-fig-carousel-prev") ||
+      dataLayer === "_HELP_NAV_PREV" ||
+      String(control.className || "").indexOf("BtnLeft") >= 0
+    );
+  }
+
+  function isCarouselNextControl(control) {
+    var dataLayer = control.getAttribute("data-layer") || "";
+    return (
+      control.hasAttribute("data-fig-carousel-next") ||
+      dataLayer === "_HELP_NAV_NEXT" ||
+      String(control.className || "").indexOf("BtnRight") >= 0
+    );
+  }
+
+  function getCarouselControls(root) {
+    return Array.prototype.slice.call(
+      root.querySelectorAll(
+        '[data-fig-carousel-next], [data-fig-carousel-prev], [data-layer="_HELP_NAV_NEXT"], [data-layer="_HELP_NAV_PREV"], .BtnRight, .BtnLeft'
+      )
+    );
+  }
+
   function layerIdentity(element) {
     return (
       element.getAttribute("data-layer") ||
@@ -1100,9 +1126,9 @@ function initializeFigmaInteractions(model) {
         }
       }
 
-      Array.prototype.slice.call(root.querySelectorAll("[data-fig-carousel-next], [data-fig-carousel-prev], .BtnRight, .BtnLeft")).forEach(function (control) {
-        var isPrev = control.hasAttribute("data-fig-carousel-prev") || String(control.className || "").indexOf("BtnLeft") >= 0;
-        var isNext = control.hasAttribute("data-fig-carousel-next") || String(control.className || "").indexOf("BtnRight") >= 0;
+      getCarouselControls(root).forEach(function (control) {
+        var isPrev = isCarouselPrevControl(control);
+        var isNext = isCarouselNextControl(control);
         if (!isPrev && !isNext) return;
         var disabled = isPrev ? swiper.isBeginning : swiper.isEnd;
         control.style.opacity = disabled ? "0.3" : "1";
@@ -1111,11 +1137,11 @@ function initializeFigmaInteractions(model) {
       });
     }
 
-    Array.prototype.slice.call(root.querySelectorAll("[data-fig-carousel-next], [data-fig-carousel-prev], .BtnRight, .BtnLeft")).forEach(function (control) {
+    getCarouselControls(root).forEach(function (control) {
       control.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (control.hasAttribute("data-fig-carousel-prev") || String(control.className || "").indexOf("BtnLeft") >= 0) {
+        if (isCarouselPrevControl(control)) {
           swiper.slidePrev();
         } else {
           swiper.slideNext();

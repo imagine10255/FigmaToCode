@@ -433,6 +433,7 @@ export default function App() {
           interactiveHtmlExport,
           extractCodeAssets,
           autoInitializeInteractions,
+          usePx2vw,
         ) => {
           setState((prevState) => ({
             ...prevState,
@@ -448,6 +449,7 @@ export default function App() {
                 interactiveHtmlExport,
                 extractCodeAssets,
                 autoInitializeInteractions,
+                usePx2vw,
               },
             },
             "*",
@@ -459,6 +461,7 @@ export default function App() {
           interactiveHtmlExport,
           extractCodeAssets,
           autoInitializeInteractions,
+          usePx2vw,
         ) => {
           setState((prevState) => ({
             ...prevState,
@@ -474,6 +477,7 @@ export default function App() {
                 interactiveHtmlExport,
                 extractCodeAssets,
                 autoInitializeInteractions,
+                usePx2vw,
                 nodeId,
               },
             },

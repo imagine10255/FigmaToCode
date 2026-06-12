@@ -48,6 +48,7 @@ type PluginUIProps = {
     interactiveHtmlExport: boolean,
     extractCodeAssets: boolean,
     autoInitializeInteractions: boolean,
+    usePx2vw: boolean,
   ) => void;
   onDownloadNode?: (
     nodeId: string,
@@ -55,13 +56,14 @@ type PluginUIProps = {
     interactiveHtmlExport: boolean,
     extractCodeAssets: boolean,
     autoInitializeInteractions: boolean,
+    usePx2vw: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
 };
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
 const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
-const PANEL_VERSION = "v260612-1539";
+const PANEL_VERSION = "v260612-1817";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
@@ -104,6 +106,7 @@ const SelectionList = ({
   interactiveHtmlExport,
   extractCodeAssets,
   autoInitializeInteractions,
+  usePx2vw,
   onDownloadNode,
   onPreviewNode,
 }: {
@@ -113,12 +116,14 @@ const SelectionList = ({
   interactiveHtmlExport: boolean;
   extractCodeAssets: boolean;
   autoInitializeInteractions: boolean;
+  usePx2vw: boolean;
   onDownloadNode?: (
     nodeId: string,
     extractImages: boolean,
     interactiveHtmlExport: boolean,
     extractCodeAssets: boolean,
     autoInitializeInteractions: boolean,
+    usePx2vw: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
 }) => {
@@ -178,6 +183,7 @@ const SelectionList = ({
                     interactiveHtmlExport,
                     extractCodeAssets,
                     autoInitializeInteractions,
+                    usePx2vw,
                   );
                 }}
                 aria-label={`Download ${node.name}`}
@@ -202,6 +208,7 @@ export const PluginUI = (props: PluginUIProps) => {
   const [autoInitializeInteractions, setAutoInitializeInteractions] =
     useState(true);
   const [interactiveHtmlExport, setInteractiveHtmlExport] = useState(false);
+  const [usePx2vw, setUsePx2vw] = useState(false);
   const savedPreviewUrl =
     props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
   const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
@@ -335,6 +342,7 @@ export const PluginUI = (props: PluginUIProps) => {
               interactiveHtmlExport,
               extractCodeAssets,
               autoInitializeInteractions,
+              usePx2vw,
             )
           }
           className={
@@ -426,6 +434,7 @@ export const PluginUI = (props: PluginUIProps) => {
                     interactiveHtmlExport={interactiveHtmlExport}
                     extractCodeAssets={extractCodeAssets}
                     autoInitializeInteractions={autoInitializeInteractions}
+                    usePx2vw={usePx2vw}
                     onDownloadNode={props.onDownloadNode}
                     onPreviewNode={handlePreviewNode}
                   />
@@ -533,6 +542,14 @@ export const PluginUI = (props: PluginUIProps) => {
                     />
                     Export CSS/JS as files
                   </label>
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={usePx2vw}
+                      onChange={(event) => setUsePx2vw(event.target.checked)}
+                    />
+                    Use px2vw ratio
+                  </label>
                   {interactiveHtmlExport && extractCodeAssets && (
                     <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
                       <input
@@ -555,6 +572,7 @@ export const PluginUI = (props: PluginUIProps) => {
                 interactiveHtmlExport={interactiveHtmlExport}
                 extractCodeAssets={extractCodeAssets}
                 autoInitializeInteractions={autoInitializeInteractions}
+                usePx2vw={usePx2vw}
                 onDownloadNode={props.onDownloadNode}
                 onPreviewNode={handlePreviewNode}
               />

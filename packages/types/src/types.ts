@@ -94,6 +94,7 @@ export type DownloadHtmlZipMessage = Message & {
   interactiveHtmlExport?: boolean;
   extractCodeAssets?: boolean;
   autoInitializeInteractions?: boolean;
+  usePx2vw?: boolean;
   nodeId?: string;
 };
 export type HtmlZipReadyMessage = Message & {

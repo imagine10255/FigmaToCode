@@ -279,6 +279,29 @@ const extractInlineScripts = (html: string) => {
   };
 };
 
+const convertPxUnitsToPx2vw = (content: string) => {
+  const protectedValues: string[] = [];
+  const protectedContent = content.replace(
+    /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g,
+    (dataUrl) => {
+      const token = `__FIGMA_TO_CODE_PROTECTED_DATA_URL_${protectedValues.length}__`;
+      protectedValues.push(dataUrl);
+      return token;
+    },
+  );
+
+  return protectedContent
+    .replace(
+      /(^|[^\w-])(-?(?:\d+\.?\d*|\.\d+))px\b/g,
+      (_match, prefix: string, pxValue: string) =>
+        `${prefix}calc(${pxValue}px * var(--px2vw-ratio, 1))`,
+    )
+    .replace(
+      /__FIGMA_TO_CODE_PROTECTED_DATA_URL_(\d+)__/g,
+      (token, index: string) => protectedValues[Number(index)] ?? token,
+    );
+};
+
 const wrapHtmlDocument = (
   title: string,
   body: string,
@@ -669,6 +692,7 @@ const buildHtmlExportSections = async (
   extractImages: boolean,
   interactiveHtmlExport: boolean,
   extractCodeAssets: boolean,
+  usePx2vw: boolean,
   nodes?: readonly SceneNode[],
 ) => {
   const selectedNodes = nodes ?? figma.currentPage.selection;
@@ -737,9 +761,12 @@ const buildHtmlExportSections = async (
       name: baseName,
       folder,
       fileName,
-      html,
-      css,
-      js: extractedScripts?.js,
+      html: usePx2vw ? convertPxUnitsToPx2vw(html) : html,
+      css: usePx2vw && css ? convertPxUnitsToPx2vw(css) : css,
+      js:
+        usePx2vw && extractedScripts?.js
+          ? convertPxUnitsToPx2vw(extractedScripts.js)
+          : extractedScripts?.js,
       usesSwiper: html.includes("data-fig-carousel-root"),
       assets,
     });
@@ -759,6 +786,7 @@ const buildHtmlDownload = async (
   interactiveHtmlExport: boolean = false,
   extractCodeAssets: boolean = false,
   autoInitializeInteractions: boolean = true,
+  usePx2vw: boolean = false,
   nodeId?: string,
 ) => {
   const selectedNodes = nodeId
@@ -770,6 +798,7 @@ const buildHtmlDownload = async (
     extractImages,
     interactiveHtmlExport,
     extractCodeAssets,
+    usePx2vw,
     selectedNodes,
   );
 
@@ -982,6 +1011,7 @@ const standardMode = async () => {
           interactiveHtmlExport,
           extractCodeAssets,
           autoInitializeInteractions,
+          usePx2vw,
           nodeId,
         } = msg as DownloadHtmlZipMessage;
         const downloadData = await buildHtmlDownload(
@@ -990,6 +1020,7 @@ const standardMode = async () => {
           Boolean(interactiveHtmlExport),
           Boolean(extractCodeAssets),
           autoInitializeInteractions !== false,
+          Boolean(usePx2vw),
           nodeId,
         );
         figma.ui.postMessage(downloadData);
