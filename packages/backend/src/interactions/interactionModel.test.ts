@@ -260,7 +260,7 @@ test("change-to runtime animates smart-animate variants", () => {
   assert.match(scripts, /isControlLikeLayer/);
   assert.match(scripts, /dragstart/);
   assert.match(scripts, /ensureSwiperLoaded/);
-  assert.match(scripts, /swiper-bundle\.min\.js/);
+  assert.doesNotMatch(scripts, /swiper-bundle\.min\.js/);
   assert.match(scripts, /initFigmaSwiperCarousels/);
   assert.match(scripts, /function getFigmaInteractionModel/);
   assert.match(scripts, /function initializeFigmaInteractions/);

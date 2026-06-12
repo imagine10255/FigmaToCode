@@ -86,7 +86,6 @@ function initializeFigmaInteractions(model) {
   var overlayRoot = document.querySelector("[data-fig-overlay-root]");
   var triggerEvents = ${JSON.stringify(triggerDomEventByType, null, 2)};
   var runtimeTemplateById = new Map();
-  var swiperLoadPromise = null;
   var state = {
     variables: {},
     modes: {}
@@ -905,37 +904,7 @@ function initializeFigmaInteractions(model) {
 
   function ensureSwiperLoaded() {
     if (window.Swiper) return Promise.resolve(window.Swiper);
-    if (swiperLoadPromise) return swiperLoadPromise;
-
-    swiperLoadPromise = new Promise(function (resolve, reject) {
-      if (!document.querySelector('link[data-fig-swiper-css]')) {
-        var link = document.createElement("link");
-        link.setAttribute("data-fig-swiper-css", "");
-        link.rel = "stylesheet";
-        link.href = "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css";
-        document.head.appendChild(link);
-      }
-
-      var existingScript = document.querySelector('script[data-fig-swiper-js]');
-      if (existingScript) {
-        existingScript.addEventListener("load", function () {
-          resolve(window.Swiper);
-        });
-        existingScript.addEventListener("error", reject);
-        return;
-      }
-
-      var script = document.createElement("script");
-      script.setAttribute("data-fig-swiper-js", "");
-      script.src = "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js";
-      script.onload = function () {
-        resolve(window.Swiper);
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-
-    return swiperLoadPromise;
+    return Promise.reject(new Error("Swiper is not loaded. Include the official Swiper bundle before initializing Figma interactions."));
   }
 
   function getCarouselSlideRoots(carouselId, root) {
@@ -1329,9 +1298,12 @@ function initializeFigmaInteractions(model) {
   }
 
   function initFigmaSwiperCarousels() {
+    var carouselRoots = Array.prototype.slice.call(document.querySelectorAll("[data-fig-carousel-root]"));
+    if (carouselRoots.length === 0) return;
+
     ensureSwiperLoaded()
       .then(function (SwiperConstructor) {
-        Array.prototype.slice.call(document.querySelectorAll("[data-fig-carousel-root]")).forEach(function (root) {
+        carouselRoots.forEach(function (root) {
           try {
             initFigmaSwiperCarousel(root, SwiperConstructor);
           } catch (error) {

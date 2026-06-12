@@ -223,7 +223,13 @@ type HtmlDocumentAssets = {
   cssHref?: string;
   jsSrc?: string;
   autoInitializeInteractions?: boolean;
+  includeSwiperAssets?: boolean;
 };
+
+const swiperCssUrl =
+  "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css";
+const swiperJsUrl =
+  "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js";
 
 const deferImmediateScript = (script: string) => {
   const trimmedScript = script.trim();
@@ -284,6 +290,12 @@ const wrapHtmlDocument = (
     : css
       ? `  <style>\n${css}\n  </style>\n`
       : "";
+  const swiperCssTag = assets.includeSwiperAssets
+    ? `  <link rel="stylesheet" href="${swiperCssUrl}" />\n`
+    : "";
+  const swiperJsTag = assets.includeSwiperAssets
+    ? `\n<script src="${swiperJsUrl}"></script>`
+    : "";
   const jsTag = assets.jsSrc
     ? `\n<script src="${escapeHtmlAttribute(assets.jsSrc)}"></script>`
     : "";
@@ -298,10 +310,11 @@ const wrapHtmlDocument = (
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title.replace(/[<>&"]/g, "")}</title>
-${cssTag}</head>
+${swiperCssTag}${cssTag}</head>
 <body>
-${body}${jsTag}${interactionInitTag}
+${body}
 </body>
+${swiperJsTag}${jsTag}${interactionInitTag}
 </html>`;
 };
 
@@ -489,6 +502,7 @@ type HtmlExportSection = {
   html: string;
   css?: string;
   js?: string;
+  usesSwiper: boolean;
   assets: HtmlZipFile[];
 };
 
@@ -726,6 +740,7 @@ const buildHtmlExportSections = async (
       html,
       css,
       js: extractedScripts?.js,
+      usesSwiper: html.includes("data-fig-carousel-root"),
       assets,
     });
     postHtmlZipProgress(
@@ -764,7 +779,9 @@ const buildHtmlDownload = async (
     return {
       type: "html-file-ready" as const,
       fileName: section.fileName,
-      content: wrapHtmlDocument(section.name, section.html, section.css),
+      content: wrapHtmlDocument(section.name, section.html, section.css, {
+        includeSwiperAssets: section.usesSwiper,
+      }),
     };
   }
 
@@ -804,6 +821,7 @@ const buildHtmlDownload = async (
           cssHref,
           jsSrc,
           autoInitializeInteractions,
+          includeSwiperAssets: section.usesSwiper,
         },
       ),
       encoding: "text",
