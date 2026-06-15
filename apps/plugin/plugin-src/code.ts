@@ -4,12 +4,18 @@ import {
   tailwindMain,
   swiftuiMain,
   htmlMain,
+  interactiveHtmlMain,
   composeMain,
   postSettingsChanged,
 } from "backend";
 import { nodesToJSON } from "backend/src/altNodes/jsonNodeConversion";
 import { oldConvertNodesToAltNodes } from "backend/src/altNodes/oldAltConversion";
 import { retrieveGenericSolidUIColors } from "backend/src/common/retrieveUI/retrieveColors";
+import { collectInteractionDestinationIds } from "backend/src/interactions/interactionModel";
+import {
+  renderInteractionInitScript,
+  withPx2vwRatioScript,
+} from "backend/src/interactions/interactionRuntime";
 import { flutterCodeGenTextStyles } from "backend/src/flutter/flutterMain";
 import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
 import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
@@ -50,6 +56,7 @@ export const defaultPluginSettings: PluginSettings = {
   embedImages: true,
   embedVectors: true,
   htmlGenerationMode: "html",
+  interactiveHtmlExport: false,
   tailwindGenerationMode: "jsx",
   baseFontSize: 16,
   useTailwind4: true,
@@ -106,11 +113,13 @@ const extractDataUrlAssets = (
   filePrefix: string,
   files: HtmlZipFile[],
 ) => {
+  const inlineOnlyDataLayer = "_HELP_CONTENT";
   const dataUrlPattern =
     /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g;
-  const tagPattern = /<([a-zA-Z][\w:-]*)([^<>]*data:image\/[^<>]*)>/g;
+  const tagPattern = /<\/?([a-zA-Z][\w:-]*)([^<>]*)>/g;
   const usedAssetPaths = new Set(files.map((file) => file.path));
   const assetPathByDataUrl = new Map<string, string>();
+  const inlineOnlyStack: boolean[] = [];
   const getShortHash = (value: string) => {
     let hash = 0;
 
@@ -122,8 +131,7 @@ const extractDataUrlAssets = (
   };
   const getDataLayerFromAttributes = (attributes: string) => {
     return (
-      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() ||
-      filePrefix
+      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() || filePrefix
     );
   };
   const createAssetPath = (
@@ -147,8 +155,48 @@ const extractDataUrlAssets = (
     return assetPath;
   };
 
-  return content.replace(tagPattern, (tag, tagName, attributes) => {
+  return content.replace(tagPattern, (tag, tagName, attributes = "") => {
+    const normalizedTagName = tagName.toLowerCase();
+    const isClosingTag = tag.startsWith("</");
+    const isSelfClosingTag =
+      tag.endsWith("/>") ||
+      [
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+      ].includes(normalizedTagName);
+
+    if (isClosingTag) {
+      inlineOnlyStack.pop();
+      return tag;
+    }
+
+    const isInsideInlineOnlyLayer = inlineOnlyStack.some(Boolean);
+    const hasDataImage = attributes.includes("data:image/");
     const dataLayer = getDataLayerFromAttributes(attributes);
+    const startsInlineOnlyLayer = dataLayer === inlineOnlyDataLayer;
+    const shouldKeepImageInline =
+      normalizedTagName === "img" && isInsideInlineOnlyLayer && hasDataImage;
+
+    if (!isSelfClosingTag) {
+      inlineOnlyStack.push(isInsideInlineOnlyLayer || startsInlineOnlyLayer);
+    }
+
+    if (shouldKeepImageInline || !hasDataImage) {
+      return tag;
+    }
+
     const nextAttributes = attributes.replace(
       dataUrlPattern,
       (dataUrl, mimeType, base64) => {
@@ -175,18 +223,166 @@ const extractDataUrlAssets = (
   });
 };
 
-const wrapHtmlDocument = (title: string, body: string, css?: string) => {
+type HtmlDocumentAssets = {
+  cssHref?: string;
+  jsSrc?: string;
+  autoInitializeInteractions?: boolean;
+  includeSwiperAssets?: boolean;
+  includePx2vwRatio?: boolean;
+};
+
+const swiperCssUrl =
+  "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css";
+const swiperJsUrl =
+  "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js";
+
+const deferImmediateScript = (script: string) => {
+  const trimmedScript = script.trim();
+  if (
+    /\bfunction\s+initializeFigmaInteractions\s*\(/.test(trimmedScript) &&
+    /initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);\s*$/.test(
+      trimmedScript,
+    )
+  ) {
+    return trimmedScript.replace(
+      /\n?initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);\s*$/,
+      "",
+    );
+  }
+
+  if (!/^\(?function\b[\s\S]*\}\)\s*\(\s*\)\s*;?$/.test(trimmedScript)) {
+    return trimmedScript;
+  }
+
+  return `(function (global) {
+  global.initializeFigmaInteractions = function initializeFigmaInteractions() {
+${script
+  .split("\n")
+  .map((line) => `    ${line}`)
+  .join("\n")}
+  };
+})(window);`;
+};
+
+const extractInlineScripts = (html: string) => {
+  const scripts: string[] = [];
+  const htmlWithoutScripts = html.replace(
+    /<script(?![^>]*\btype=(["'])application\/json\1)[^>]*>([\s\S]*?)<\/script>/gi,
+    (_scriptTag, _quote, scriptContent: string) => {
+      const trimmedScript = scriptContent.trim();
+      if (trimmedScript) {
+        scripts.push(deferImmediateScript(trimmedScript));
+      }
+
+      return "";
+    },
+  );
+
+  return {
+    html: htmlWithoutScripts,
+    js: scripts.join("\n\n"),
+  };
+};
+
+const extractDocumentScripts = (html: string) => {
+  const jsonScripts: string[] = [];
+  const executableScripts: string[] = [];
+  const htmlWithoutScripts = html.replace(
+    /<script\b([^>]*)>[\s\S]*?<\/script>/gi,
+    (scriptTag, attributes: string) => {
+      if (/\btype=(["'])application\/json\1/i.test(attributes)) {
+        jsonScripts.push(scriptTag);
+      } else {
+        executableScripts.push(scriptTag);
+      }
+
+      return "";
+    },
+  );
+
+  return {
+    html: htmlWithoutScripts.trim(),
+    jsonScripts: jsonScripts.join("\n"),
+    executableScripts: executableScripts.join("\n"),
+  };
+};
+
+const convertPxUnitsToPx2vw = (content: string) => {
+  const protectedValues: string[] = [];
+  const protectedContent = content.replace(
+    /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g,
+    (dataUrl) => {
+      const token = `__FIGMA_TO_CODE_PROTECTED_DATA_URL_${protectedValues.length}__`;
+      protectedValues.push(dataUrl);
+      return token;
+    },
+  );
+
+  return protectedContent
+    .replace(
+      /(^|[^\w-])(-?(?:\d+\.?\d*|\.\d+))px\b/g,
+      (_match, prefix: string, pxValue: string) =>
+        `${prefix}calc(${pxValue}px * var(--px2vw-ratio, 1))`,
+    )
+    .replace(
+      /__FIGMA_TO_CODE_PROTECTED_DATA_URL_(\d+)__/g,
+      (token, index: string) => protectedValues[Number(index)] ?? token,
+    );
+};
+
+const wrapHtmlDocument = (
+  title: string,
+  body: string,
+  css?: string,
+  assets: HtmlDocumentAssets = {},
+) => {
+  const extractedBody = extractDocumentScripts(body);
+  const cssTag = assets.cssHref
+    ? `  <link rel="stylesheet" href="${escapeHtmlAttribute(assets.cssHref)}" />\n`
+    : css
+      ? `  <style>\n${css}\n  </style>\n`
+      : "";
+  const swiperCssTag = assets.includeSwiperAssets
+    ? `  <link rel="stylesheet" href="${swiperCssUrl}" />\n`
+    : "";
+  const swiperJsTag = assets.includeSwiperAssets
+    ? `\n<script src="${swiperJsUrl}"></script>`
+    : "";
+  const jsTag = assets.jsSrc
+    ? `\n<script src="${escapeHtmlAttribute(assets.jsSrc)}"></script>`
+    : "";
+  const interactionInitTag =
+    assets.jsSrc && assets.autoInitializeInteractions
+      ? `\n<script>\n${renderInteractionInitScript({
+          includePx2vwRatio: assets.includePx2vwRatio,
+        })}\n</script>`
+      : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title.replace(/[<>&"]/g, "")}</title>
-${css ? `  <style>\n${css}\n  </style>\n` : ""}</head>
+${swiperCssTag}${cssTag}</head>
 <body>
-${body}
+${extractedBody.html}
 </body>
+${extractedBody.jsonScripts ? `\n${extractedBody.jsonScripts}` : ""}${swiperJsTag}${extractedBody.executableScripts ? `\n${extractedBody.executableScripts}` : ""}${jsTag}${interactionInitTag}
 </html>`;
+};
+
+const appendHelpControlCSS = (css?: string) => {
+  const helpControlCSS = `[data-layer="_HELP_NAV_PREV"],
+[data-layer="_HELP_NAV_NEXT"] {
+  z-index: 2;
+}
+
+[data-layer="_HELP_CLOSE_MODAL"] {
+  cursor: pointer;
+}`;
+
+  return [css, helpControlCSS].filter(Boolean).join("\n\n");
 };
 
 const formatDownloadTimestamp = () => {
@@ -359,6 +555,8 @@ type HtmlExportSection = {
   fileName: string;
   html: string;
   css?: string;
+  js?: string;
+  usesSwiper: boolean;
   assets: HtmlZipFile[];
 };
 
@@ -372,11 +570,7 @@ const getSceneNodeById = async (nodeId: string) => {
   return node as SceneNode;
 };
 
-const postHtmlZipProgress = (
-  current: number,
-  total: number,
-  label: string,
-) => {
+const postHtmlZipProgress = (current: number, total: number, label: string) => {
   figma.ui.postMessage({
     type: "html-zip-progress",
     current,
@@ -424,7 +618,7 @@ const getZipFileName = (
   const baseName =
     numericPrefixes.length > 0
       ? sanitizeFileName(numericPrefixes.join("_"), "figma-sections")
-    : "figma-sections";
+      : "figma-sections";
 
   return `${baseName}-${formatZipTimestamp()}.zip`;
 };
@@ -454,9 +648,82 @@ const getUniqueFileName = (fileName: string, usedFileNames: Set<string>) => {
   return nextFileName;
 };
 
+const collectNodeIds = (nodes: readonly SceneNode[]) => {
+  const ids = new Set<string>();
+  const visit = (node: any) => {
+    if (!node?.id) {
+      return;
+    }
+
+    ids.add(node.id);
+
+    if (Array.isArray(node.children)) {
+      node.children.forEach(visit);
+    }
+  };
+
+  nodes.forEach(visit);
+  return ids;
+};
+
+const getInteractionTemplateNodes = async (
+  convertedSelection: SceneNode[],
+  settings: PluginSettings,
+) => {
+  const exportedIds = collectNodeIds(convertedSelection);
+  const queuedDestinationIds =
+    collectInteractionDestinationIds(convertedSelection);
+  const processedDestinationIds = new Set<string>();
+  const templateNodes: SceneNode[] = [];
+
+  while (queuedDestinationIds.length > 0) {
+    const destinationId = queuedDestinationIds.shift();
+    if (
+      !destinationId ||
+      exportedIds.has(destinationId) ||
+      processedDestinationIds.has(destinationId)
+    ) {
+      continue;
+    }
+    processedDestinationIds.add(destinationId);
+
+    const destination = await figma.getNodeByIdAsync(destinationId);
+    if (
+      !destination ||
+      !("type" in destination) ||
+      !("visible" in destination)
+    ) {
+      continue;
+    }
+
+    const convertedDestination = settings.useOldPluginVersion2025
+      ? oldConvertNodesToAltNodes([destination as SceneNode], null)
+      : await nodesToJSON([destination as SceneNode], settings);
+    const convertedTemplateNodes = convertedDestination as SceneNode[];
+
+    templateNodes.push(...convertedTemplateNodes);
+    collectNodeIds(convertedTemplateNodes).forEach((id) => exportedIds.add(id));
+    collectInteractionDestinationIds(convertedTemplateNodes).forEach(
+      (nestedDestinationId) => {
+        if (
+          !exportedIds.has(nestedDestinationId) &&
+          !processedDestinationIds.has(nestedDestinationId)
+        ) {
+          queuedDestinationIds.push(nestedDestinationId);
+        }
+      },
+    );
+  }
+
+  return templateNodes;
+};
+
 const buildHtmlExportSections = async (
   settings: PluginSettings,
   extractImages: boolean,
+  interactiveHtmlExport: boolean,
+  extractCodeAssets: boolean,
+  usePx2vw: boolean,
   nodes?: readonly SceneNode[],
 ) => {
   const selectedNodes = nodes ?? figma.currentPage.selection;
@@ -469,6 +736,7 @@ const buildHtmlExportSections = async (
     ...settings,
     framework: "HTML",
     htmlGenerationMode: "html",
+    interactiveHtmlExport,
     embedImages: true,
   };
 
@@ -492,16 +760,31 @@ const buildHtmlExportSections = async (
     const convertedSelection = settings.useOldPluginVersion2025
       ? oldConvertNodesToAltNodes([node], null)
       : await nodesToJSON([node], exportSettings);
-    const result = await htmlMain(convertedSelection, exportSettings);
+    const convertedSceneNodes = convertedSelection as SceneNode[];
+    const templateNodes = interactiveHtmlExport
+      ? await getInteractionTemplateNodes(convertedSceneNodes, exportSettings)
+      : [];
+    const result = interactiveHtmlExport
+      ? await interactiveHtmlMain(
+          convertedSceneNodes,
+          exportSettings,
+          false,
+          templateNodes,
+        )
+      : await htmlMain(convertedSceneNodes, exportSettings);
     const assets: HtmlZipFile[] = [];
     const htmlWithAssets = extractImages
       ? extractDataUrlAssets(result.html, "image", assets)
       : result.html;
-    let css = result.css;
+    let css = appendHelpControlCSS(result.css);
     if (css && extractImages) {
       css = extractDataUrlAssets(css, "css-image", assets);
     }
-    const html = prepareHtmlForDownload(htmlWithAssets);
+    const preparedHtml = prepareHtmlForDownload(htmlWithAssets);
+    const extractedScripts = extractCodeAssets
+      ? extractInlineScripts(preparedHtml)
+      : null;
+    const html = extractedScripts?.html ?? preparedHtml;
     const dataLayer = getRootDataLayer(html);
     const fileName = `${sanitizeFileName(dataLayer, "help")}.html`;
 
@@ -509,8 +792,13 @@ const buildHtmlExportSections = async (
       name: baseName,
       folder,
       fileName,
-      html,
-      css,
+      html: usePx2vw ? convertPxUnitsToPx2vw(html) : html,
+      css: usePx2vw && css ? convertPxUnitsToPx2vw(css) : css,
+      js:
+        usePx2vw && extractedScripts?.js
+          ? withPx2vwRatioScript(convertPxUnitsToPx2vw(extractedScripts.js))
+          : extractedScripts?.js,
+      usesSwiper: html.includes("data-fig-carousel-root"),
       assets,
     });
     postHtmlZipProgress(
@@ -526,6 +814,10 @@ const buildHtmlExportSections = async (
 const buildHtmlDownload = async (
   settings: PluginSettings,
   extractImages: boolean,
+  interactiveHtmlExport: boolean = false,
+  extractCodeAssets: boolean = false,
+  autoInitializeInteractions: boolean = true,
+  usePx2vw: boolean = false,
   nodeId?: string,
 ) => {
   const selectedNodes = nodeId
@@ -535,16 +827,21 @@ const buildHtmlDownload = async (
   const sections = await buildHtmlExportSections(
     settings,
     extractImages,
+    interactiveHtmlExport,
+    extractCodeAssets,
+    usePx2vw,
     selectedNodes,
   );
 
-  if (!extractImages && sections.length === 1) {
+  if (!extractImages && !extractCodeAssets && sections.length === 1) {
     const section = sections[0];
 
     return {
       type: "html-file-ready" as const,
       fileName: section.fileName,
-      content: wrapHtmlDocument(section.name, section.html, section.css),
+      content: wrapHtmlDocument(section.name, section.html, section.css, {
+        includeSwiperAssets: section.usesSwiper,
+      }),
     };
   }
 
@@ -552,18 +849,60 @@ const buildHtmlDownload = async (
   const usedFileNames = new Set<string>();
 
   for (const section of sections) {
-    const htmlFileName = extractImages
-      ? section.fileName
-      : getUniqueFileName(section.fileName, usedFileNames);
+    const htmlFileName =
+      extractImages || extractCodeAssets
+        ? section.fileName
+        : getUniqueFileName(section.fileName, usedFileNames);
+    const cssFileName = "styles.css";
+    const jsFileName = "script.js";
+    const isFolderExport =
+      sections.length > 1 && (extractImages || extractCodeAssets);
+    const htmlPath = isFolderExport
+      ? `${section.folder}/${htmlFileName}`
+      : htmlFileName;
+    const cssPath = isFolderExport
+      ? `${section.folder}/${cssFileName}`
+      : cssFileName;
+    const jsPath = isFolderExport
+      ? `${section.folder}/${jsFileName}`
+      : jsFileName;
+    const cssHref =
+      extractCodeAssets && section.css ? `./${cssFileName}` : undefined;
+    const jsSrc =
+      extractCodeAssets && section.js ? `./${jsFileName}` : undefined;
 
     files.push({
-      path:
-        extractImages && sections.length > 1
-          ? `${section.folder}/${htmlFileName}`
-          : htmlFileName,
-      content: wrapHtmlDocument(section.name, section.html, section.css),
+      path: htmlPath,
+      content: wrapHtmlDocument(
+        section.name,
+        section.html,
+        extractCodeAssets ? undefined : section.css,
+        {
+          cssHref,
+          jsSrc,
+          autoInitializeInteractions,
+          includeSwiperAssets: section.usesSwiper,
+          includePx2vwRatio: usePx2vw && Boolean(section.js),
+        },
+      ),
       encoding: "text",
     });
+
+    if (extractCodeAssets && section.css) {
+      files.push({
+        path: cssPath,
+        content: section.css,
+        encoding: "text",
+      });
+    }
+
+    if (extractCodeAssets && section.js) {
+      files.push({
+        path: jsPath,
+        content: section.js,
+        encoding: "text",
+      });
+    }
 
     if (extractImages) {
       files.push(
@@ -641,7 +980,10 @@ const buildHtmlPreviewForNode = async (
   const convertedSelection = settings.useOldPluginVersion2025
     ? oldConvertNodesToAltNodes([sceneNode], null)
     : await nodesToJSON([sceneNode], exportSettings);
-  const result = await htmlMain(convertedSelection, exportSettings);
+  const result = await htmlMain(
+    convertedSelection as SceneNode[],
+    exportSettings,
+  );
 
   return {
     nodeId: sceneNode.id,
@@ -696,10 +1038,21 @@ const standardMode = async () => {
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
-        const { extractImages, nodeId } = msg as DownloadHtmlZipMessage;
+        const {
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+          autoInitializeInteractions,
+          usePx2vw,
+          nodeId,
+        } = msg as DownloadHtmlZipMessage;
         const downloadData = await buildHtmlDownload(
           userPluginSettings,
           extractImages,
+          Boolean(interactiveHtmlExport),
+          Boolean(extractCodeAssets),
+          autoInitializeInteractions !== false,
+          Boolean(usePx2vw),
           nodeId,
         );
         figma.ui.postMessage(downloadData);

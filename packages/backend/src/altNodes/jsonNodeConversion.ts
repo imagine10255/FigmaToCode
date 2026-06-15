@@ -5,6 +5,7 @@ import { HasGeometryTrait, Node, Paint } from "../api_types";
 import { calculateRectangleFromBoundingBox } from "../common/commonPosition";
 import { isLikelyIcon } from "./iconDetection";
 import { AltNode } from "../alt_api_types";
+import { serializePrototypeReactions } from "../interactions/interactionModel";
 
 // Performance tracking counters
 export let getNodeByIdAsyncTime = 0;
@@ -308,8 +309,16 @@ const processNodePair = async (
     jsonNode.rotation = -jsonNode.rotation * (180 / Math.PI);
   }
 
-  // Inline all GROUP nodes by processing their children directly
-  if (nodeType === "GROUP" && jsonNode.children) {
+  const reactions = serializePrototypeReactions((figmaNode as any).reactions);
+
+  // Inline all GROUP nodes by processing their children directly. Interactive
+  // exports must preserve groups with prototype reactions because the runtime
+  // needs a concrete DOM element to bind.
+  if (
+    nodeType === "GROUP" &&
+    jsonNode.children &&
+    (!settings.interactiveHtmlExport || reactions.length === 0)
+  ) {
     const processedChildren = [];
 
     if (
@@ -359,6 +368,10 @@ const processNodePair = async (
   // Return null for unsupported nodes
   if (nodeType === "SLICE") {
     return null;
+  }
+
+  if (reactions.length > 0) {
+    (jsonNode as any).prototypeReactions = reactions;
   }
 
   // Set parent reference if parent is provided
