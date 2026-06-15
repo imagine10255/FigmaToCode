@@ -1201,13 +1201,27 @@ export const withPx2vwRatioScript = (script: string): string => {
 
 export const renderInteractionInitScript = (
   options: { includePx2vwRatio?: boolean } = {},
-): string =>
-  [
+): string => {
+  const initScript = [
     options.includePx2vwRatio ? px2vwRatioInitScript : "",
     "initializeFigmaInteractions(getFigmaInteractionModel());",
   ]
     .filter(Boolean)
     .join("\n\n");
+
+  return `function runFigmaInteractionInit() {
+${initScript
+  .split("\n")
+  .map((line) => `  ${line}`)
+  .join("\n")}
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", runFigmaInteractionInit, { once: true });
+} else {
+  runFigmaInteractionInit();
+}`;
+};
 
 export const renderInteractionScripts = (model: InteractionModel): string => {
   const serializedModel = escapeScriptJson(JSON.stringify(model, null, 2));

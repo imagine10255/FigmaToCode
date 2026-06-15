@@ -346,17 +346,23 @@ const wrapHtmlDocument = (
     ? `  <link rel="stylesheet" href="${swiperCssUrl}" />\n`
     : "";
   const swiperJsTag = assets.includeSwiperAssets
-    ? `\n<script src="${swiperJsUrl}"></script>`
+    ? `  <script src="${swiperJsUrl}" defer></script>\n`
     : "";
   const jsTag = assets.jsSrc
-    ? `\n<script src="${escapeHtmlAttribute(assets.jsSrc)}"></script>`
+    ? `  <script src="${escapeHtmlAttribute(assets.jsSrc)}" defer></script>\n`
     : "";
   const interactionInitTag =
     assets.jsSrc && assets.autoInitializeInteractions
-      ? `\n<script>\n${renderInteractionInitScript({
+      ? `  <script>\n${renderInteractionInitScript({
           includePx2vwRatio: assets.includePx2vwRatio,
-        })}\n</script>`
+        })}\n  </script>\n`
       : "";
+  const jsonScripts = extractedBody.jsonScripts
+    ? `${extractedBody.jsonScripts}\n`
+    : "";
+  const executableScripts = extractedBody.executableScripts
+    ? `${extractedBody.executableScripts}\n`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -364,11 +370,10 @@ const wrapHtmlDocument = (
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title.replace(/[<>&"]/g, "")}</title>
-${swiperCssTag}${cssTag}</head>
+${swiperCssTag}${cssTag}${jsonScripts}${swiperJsTag}${executableScripts}${jsTag}${interactionInitTag}</head>
 <body>
 ${extractedBody.html}
 </body>
-${extractedBody.jsonScripts ? `\n${extractedBody.jsonScripts}` : ""}${swiperJsTag}${extractedBody.executableScripts ? `\n${extractedBody.executableScripts}` : ""}${jsTag}${interactionInitTag}
 </html>`;
 };
 

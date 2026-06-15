@@ -167,10 +167,18 @@ test("P1 external script output includes px2vw bootstrap and trimmed Swiper runt
   assert.equal(
     renderInteractionInitScript({ includePx2vwRatio: true }),
     [
-      "updatePx2VwRatio();",
-      "window.addEventListener('resize', updatePx2VwRatio);",
+      "function runFigmaInteractionInit() {",
+      "  updatePx2VwRatio();",
+      "  window.addEventListener('resize', updatePx2VwRatio);",
+      "  ",
+      "  initializeFigmaInteractions(getFigmaInteractionModel());",
+      "}",
       "",
-      "initializeFigmaInteractions(getFigmaInteractionModel());",
+      'if (document.readyState === "loading") {',
+      '  document.addEventListener("DOMContentLoaded", runFigmaInteractionInit, { once: true });',
+      "} else {",
+      "  runFigmaInteractionInit();",
+      "}",
     ].join("\n"),
   );
 });

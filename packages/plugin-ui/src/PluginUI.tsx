@@ -63,7 +63,7 @@ type PluginUIProps = {
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
 const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
-const PANEL_VERSION = "v260615-1612";
+const PANEL_VERSION = "v260615-1630";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
