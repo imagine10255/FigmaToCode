@@ -21,7 +21,7 @@ interface CodePanelProps {
     key: keyof PluginSettings,
     value: PluginSettings[keyof PluginSettings],
   ) => void;
-  onDownloadHtmlZip?: (extractImages: boolean) => void;
+  onDownloadHtmlZip?: (extractImages: boolean, nodeIds?: string[]) => void;
   onPreviewHtml?: () => void;
 }
 

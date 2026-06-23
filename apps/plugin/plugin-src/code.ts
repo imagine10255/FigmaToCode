@@ -20,6 +20,7 @@ import {
   HtmlZipFile,
   PluginSettings,
   SelectionPreviewNode,
+  SetRelatedFrameSearchMessage,
   SettingWillChangeMessage,
 } from "types";
 
@@ -122,8 +123,7 @@ const extractDataUrlAssets = (
   };
   const getDataLayerFromAttributes = (attributes: string) => {
     return (
-      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() ||
-      filePrefix
+      attributes.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() || filePrefix
     );
   };
   const createAssetPath = (
@@ -299,25 +299,106 @@ const getPreviewSize = (node: SceneNode) => ({
   height: "height" in node ? node.height : null,
 });
 
-const buildSelectionPreviewNodes = (): SelectionPreviewNode[] => {
-  return figma.currentPage.selection.map((node) => {
-    const size = getPreviewSize(node);
+const RELATED_FRAME_NAME_PATTERN = /^(\d+)_([A-Za-z][A-Za-z-]*)$/;
 
-    return {
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      width: size.width,
-      height: size.height,
-      fill: getPreviewFill(node),
-    };
-  });
+const getRelatedFramePrefix = (node: SceneNode) => {
+  return node.name.trim().match(RELATED_FRAME_NAME_PATTERN)?.[1] ?? null;
 };
 
-const postSelectionPreviewData = () => {
+const getRelatedFrameSeedNode = (node: SceneNode) => {
+  let current: BaseNode | null = node;
+
+  while (current) {
+    if ("type" in current && current.type === "FRAME") {
+      const frameNode = current as FrameNode;
+
+      if (getRelatedFramePrefix(frameNode)) {
+        return frameNode;
+      }
+    }
+
+    current = current.parent;
+  }
+
+  return getRelatedFramePrefix(node) ? node : null;
+};
+
+const buildSelectionPreviewNode = (node: SceneNode): SelectionPreviewNode => {
+  const size = getPreviewSize(node);
+
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    width: size.width,
+    height: size.height,
+    fill: getPreviewFill(node),
+  };
+};
+
+const dedupeNodes = (nodes: readonly SceneNode[]) => {
+  const seen = new Set<string>();
+  const dedupedNodes: SceneNode[] = [];
+
+  for (const node of nodes) {
+    if (seen.has(node.id)) {
+      continue;
+    }
+
+    seen.add(node.id);
+    dedupedNodes.push(node);
+  }
+
+  return dedupedNodes;
+};
+
+const findRelatedLocaleFrames = (selectedNodes: readonly SceneNode[]) => {
+  const seedNodes = selectedNodes
+    .map((node) => getRelatedFrameSeedNode(node))
+    .filter((node): node is SceneNode => Boolean(node));
+  const prefixes = new Set(
+    seedNodes
+      .map((node) => getRelatedFramePrefix(node))
+      .filter((prefix): prefix is string => Boolean(prefix)),
+  );
+  const localeFrames = figma.currentPage.findAll((node) => {
+    if (node.type !== "FRAME") {
+      return false;
+    }
+
+    return Boolean(getRelatedFramePrefix(node));
+  });
+
+  if (prefixes.size === 0) {
+    return localeFrames;
+  }
+
+  const relatedFrames = localeFrames.filter((node) => {
+    const prefix = getRelatedFramePrefix(node);
+    return Boolean(prefix && prefixes.has(prefix));
+  });
+
+  return dedupeNodes([...relatedFrames, ...seedNodes]);
+};
+
+const buildSelectionPreviewNodes = (
+  includeRelatedFrames = false,
+  sourceNodes: readonly SceneNode[] = figma.currentPage.selection,
+): SelectionPreviewNode[] => {
+  const previewNodes = includeRelatedFrames
+    ? findRelatedLocaleFrames(sourceNodes)
+    : sourceNodes;
+
+  return previewNodes.map(buildSelectionPreviewNode);
+};
+
+const postSelectionPreviewData = (
+  includeRelatedFrames = false,
+  sourceNodes?: readonly SceneNode[],
+) => {
   figma.ui.postMessage({
     type: "selection-preview-data",
-    nodes: buildSelectionPreviewNodes(),
+    nodes: buildSelectionPreviewNodes(includeRelatedFrames, sourceNodes),
   });
 };
 
@@ -372,11 +453,23 @@ const getSceneNodeById = async (nodeId: string) => {
   return node as SceneNode;
 };
 
-const postHtmlZipProgress = (
-  current: number,
-  total: number,
-  label: string,
-) => {
+const getSceneNodesByIds = async (nodeIds: readonly string[]) => {
+  const seen = new Set<string>();
+  const nodes: SceneNode[] = [];
+
+  for (const nodeId of nodeIds) {
+    if (seen.has(nodeId)) {
+      continue;
+    }
+
+    seen.add(nodeId);
+    nodes.push(await getSceneNodeById(nodeId));
+  }
+
+  return nodes;
+};
+
+const postHtmlZipProgress = (current: number, total: number, label: string) => {
   figma.ui.postMessage({
     type: "html-zip-progress",
     current,
@@ -424,7 +517,7 @@ const getZipFileName = (
   const baseName =
     numericPrefixes.length > 0
       ? sanitizeFileName(numericPrefixes.join("_"), "figma-sections")
-    : "figma-sections";
+      : "figma-sections";
 
   return `${baseName}-${formatZipTimestamp()}.zip`;
 };
@@ -526,11 +619,13 @@ const buildHtmlExportSections = async (
 const buildHtmlDownload = async (
   settings: PluginSettings,
   extractImages: boolean,
-  nodeId?: string,
+  options: { nodeId?: string; nodeIds?: readonly string[] } = {},
 ) => {
-  const selectedNodes = nodeId
-    ? [await getSceneNodeById(nodeId)]
-    : figma.currentPage.selection;
+  const selectedNodes = options.nodeId
+    ? [await getSceneNodeById(options.nodeId)]
+    : options.nodeIds?.length
+      ? await getSceneNodesByIds(options.nodeIds)
+      : figma.currentPage.selection;
   postHtmlZipProgress(0, selectedNodes.length, "Starting export...");
   const sections = await buildHtmlExportSections(
     settings,
@@ -655,12 +750,13 @@ const standardMode = async () => {
   console.log("[DEBUG] standardMode - Starting standard mode initialization");
   figma.showUI(__html__, { width: 450, height: 700, themeColors: true });
   let initialized = false;
+  let includeRelatedFrames = false;
   const initializeOnce = async () => {
     if (initialized) {
       return;
     }
     initialized = true;
-    postSelectionPreviewData();
+    postSelectionPreviewData(includeRelatedFrames);
     await initSettings();
   };
 
@@ -670,14 +766,14 @@ const standardMode = async () => {
       "[DEBUG] selectionchange event - New selection count:",
       figma.currentPage.selection.length,
     );
-    postSelectionPreviewData();
+    postSelectionPreviewData(includeRelatedFrames);
   });
 
   // Listen for page changes
   figma.loadAllPagesAsync();
   figma.on("documentchange", () => {
     console.log("[DEBUG] documentchange event triggered");
-    postSelectionPreviewData();
+    postSelectionPreviewData(includeRelatedFrames);
   });
 
   figma.ui.onmessage = async (msg) => {
@@ -696,11 +792,12 @@ const standardMode = async () => {
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
-        const { extractImages, nodeId } = msg as DownloadHtmlZipMessage;
+        const { extractImages, nodeId, nodeIds } =
+          msg as DownloadHtmlZipMessage;
         const downloadData = await buildHtmlDownload(
           userPluginSettings,
           extractImages,
-          nodeId,
+          { nodeId, nodeIds },
         );
         figma.ui.postMessage(downloadData);
       } catch (error) {
@@ -709,6 +806,15 @@ const standardMode = async () => {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    } else if (msg.type === "set-related-frame-search") {
+      const { enabled, nodeIds } = msg as SetRelatedFrameSearchMessage;
+      includeRelatedFrames = enabled;
+      const sourceNodes =
+        enabled && nodeIds?.length
+          ? await getSceneNodesByIds(nodeIds)
+          : undefined;
+
+      postSelectionPreviewData(includeRelatedFrames, sourceNodes);
     } else if (msg.type === "resize-ui") {
       const { width, height } = msg as {
         type: "resize-ui";

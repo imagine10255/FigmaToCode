@@ -87,6 +87,12 @@ export type DownloadHtmlZipMessage = Message & {
   type: "download-html-zip";
   extractImages: boolean;
   nodeId?: string;
+  nodeIds?: string[];
+};
+export type SetRelatedFrameSearchMessage = Message & {
+  type: "set-related-frame-search";
+  enabled: boolean;
+  nodeIds?: string[];
 };
 export type HtmlZipReadyMessage = Message & {
   type: "html-zip-ready";
