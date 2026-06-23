@@ -1,6 +1,6 @@
 {
   "name": "plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "build": "pnpm run build:ui && pnpm run build:main --minify --tree-shaking=true",

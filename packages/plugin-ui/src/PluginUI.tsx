@@ -3,7 +3,6 @@ import copy from "copy-to-clipboard";
 import EmptyState from "./components/EmptyState";
 import WarningsPanel from "./components/WarningsPanel";
 import {
-  Framework,
   HTMLPreview,
   IframePreviewPayload,
   LinearGradientConversion,
@@ -24,8 +23,8 @@ type PluginUIProps = {
   code: string;
   htmlPreview: HTMLPreview;
   warnings: Warning[];
-  selectedFramework: Framework;
-  setSelectedFramework: (framework: Framework) => void;
+  selectedFramework: string;
+  setSelectedFramework: (framework: string) => void;
   settings: PluginSettings | null;
   onPreferenceChanged: (
     key: keyof PluginSettings,
@@ -44,15 +43,31 @@ type PluginUIProps = {
   previewPayload: IframePreviewPayload;
   previewRefreshKey: number;
   includeRelatedFrames: boolean;
+  pluginVersion?: string;
   onPreviewUrlChanged?: (url: string) => void;
-  onDownloadHtmlZip?: (extractImages: boolean, nodeIds?: string[]) => void;
-  onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
+  onDownloadHtmlZip?: (
+    extractImages: boolean,
+    interactiveHtmlExport: boolean,
+    extractCodeAssets: boolean,
+    autoInitializeInteractions: boolean,
+    usePx2vw: boolean,
+    nodeIds?: string[],
+  ) => void;
+  onDownloadNode?: (
+    nodeId: string,
+    extractImages: boolean,
+    interactiveHtmlExport: boolean,
+    extractCodeAssets: boolean,
+    autoInitializeInteractions: boolean,
+    usePx2vw: boolean,
+  ) => void;
   onPreviewNode?: (nodeId: string) => void;
   onIncludeRelatedFramesChange?: (enabled: boolean) => void;
 };
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
 const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
+const PANEL_VERSION = "v260615-1630";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
@@ -92,13 +107,28 @@ const SelectionList = ({
   nodes,
   activePreviewNodeId,
   extractImages,
+  interactiveHtmlExport,
+  extractCodeAssets,
+  autoInitializeInteractions,
+  usePx2vw,
   onDownloadNode,
   onPreviewNode,
 }: {
   nodes: SelectionPreviewNode[];
   activePreviewNodeId: string | null;
   extractImages: boolean;
-  onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
+  interactiveHtmlExport: boolean;
+  extractCodeAssets: boolean;
+  autoInitializeInteractions: boolean;
+  usePx2vw: boolean;
+  onDownloadNode?: (
+    nodeId: string,
+    extractImages: boolean,
+    interactiveHtmlExport: boolean,
+    extractCodeAssets: boolean,
+    autoInitializeInteractions: boolean,
+    usePx2vw: boolean,
+  ) => void;
   onPreviewNode?: (nodeId: string) => void;
 }) => {
   if (nodes.length === 0) {
@@ -151,7 +181,14 @@ const SelectionList = ({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-colors hover:border-primary/50 hover:text-foreground"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDownloadNode?.(node.id, extractImages);
+                  onDownloadNode?.(
+                    node.id,
+                    extractImages,
+                    interactiveHtmlExport,
+                    extractCodeAssets,
+                    autoInitializeInteractions,
+                    usePx2vw,
+                  );
                 }}
                 aria-label={`Download ${node.name}`}
                 title="Download"
@@ -171,6 +208,11 @@ export const PluginUI = (props: PluginUIProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showPreviewFrame, setShowPreviewFrame] = useState(false);
   const [extractImages, setExtractImages] = useState(false);
+  const [extractCodeAssets, setExtractCodeAssets] = useState(false);
+  const [autoInitializeInteractions, setAutoInitializeInteractions] =
+    useState(true);
+  const [interactiveHtmlExport, setInteractiveHtmlExport] = useState(false);
+  const [usePx2vw, setUsePx2vw] = useState(false);
   const savedPreviewUrl =
     props.previewUrl || getStoredPreviewUrl() || DEFAULT_PREVIEW_URL;
   const [draftPreviewUrl, setDraftPreviewUrl] = useState(savedPreviewUrl);
@@ -178,6 +220,9 @@ export const PluginUI = (props: PluginUIProps) => {
 
   const warnings = props.warnings ?? [];
   const selectionNodes = props.selectionNodes ?? [];
+  const panelVersionLabel = props.pluginVersion
+    ? `${PANEL_VERSION} · plugin v${props.pluginVersion}`
+    : PANEL_VERSION;
   const previewOrigin = getTargetOrigin(savedPreviewUrl);
   const postPreviewPayload = useCallback(() => {
     if (
@@ -318,6 +363,10 @@ export const PluginUI = (props: PluginUIProps) => {
           onClick={() =>
             props.onDownloadHtmlZip?.(
               extractImages,
+              interactiveHtmlExport,
+              extractCodeAssets,
+              autoInitializeInteractions,
+              usePx2vw,
               selectionNodes.map((node) => node.id),
             )
           }
@@ -393,6 +442,9 @@ export const PluginUI = (props: PluginUIProps) => {
                     <span className="ml-2 text-xs font-medium text-muted-foreground">
                       {selectionNodes.length}
                     </span>
+                    <span className="ml-2 text-[10px] font-semibold text-primary">
+                      {panelVersionLabel}
+                    </span>
                   </p>
                   {renderSelectionHeaderActions(true)}
                 </div>
@@ -404,6 +456,10 @@ export const PluginUI = (props: PluginUIProps) => {
                     nodes={selectionNodes}
                     activePreviewNodeId={props.activePreviewNodeId}
                     extractImages={extractImages}
+                    interactiveHtmlExport={interactiveHtmlExport}
+                    extractCodeAssets={extractCodeAssets}
+                    autoInitializeInteractions={autoInitializeInteractions}
+                    usePx2vw={usePx2vw}
                     onDownloadNode={props.onDownloadNode}
                     onPreviewNode={handlePreviewNode}
                   />
@@ -468,6 +524,9 @@ export const PluginUI = (props: PluginUIProps) => {
                   <span className="ml-2 text-sm font-medium text-muted-foreground">
                     {selectionNodes.length}
                   </span>
+                  <span className="ml-2 text-[10px] font-semibold text-primary">
+                    {panelVersionLabel}
+                  </span>
                 </p>
                 {renderSelectionHeaderActions()}
               </div>
@@ -477,20 +536,68 @@ export const PluginUI = (props: PluginUIProps) => {
                 settingsPanel}
 
               {selectionNodes.length > 0 && (
-                <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={extractImages}
-                    onChange={(event) => setExtractImages(event.target.checked)}
-                  />
-                  Export images as files
-                </label>
+                <div className="grid w-full gap-2">
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={interactiveHtmlExport}
+                      onChange={(event) =>
+                        setInteractiveHtmlExport(event.target.checked)
+                      }
+                    />
+                    Interactive HTML
+                  </label>
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={extractImages}
+                      onChange={(event) =>
+                        setExtractImages(event.target.checked)
+                      }
+                    />
+                    Export images as files
+                  </label>
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={extractCodeAssets}
+                      onChange={(event) =>
+                        setExtractCodeAssets(event.target.checked)
+                      }
+                    />
+                    Export CSS/JS as files
+                  </label>
+                  <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={usePx2vw}
+                      onChange={(event) => setUsePx2vw(event.target.checked)}
+                    />
+                    Use px2vw ratio
+                  </label>
+                  {interactiveHtmlExport && extractCodeAssets && (
+                    <label className="flex w-full items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={autoInitializeInteractions}
+                        onChange={(event) =>
+                          setAutoInitializeInteractions(event.target.checked)
+                        }
+                      />
+                      Auto initialize interactions
+                    </label>
+                  )}
+                </div>
               )}
 
               <SelectionList
                 nodes={selectionNodes}
                 activePreviewNodeId={props.activePreviewNodeId}
                 extractImages={extractImages}
+                interactiveHtmlExport={interactiveHtmlExport}
+                extractCodeAssets={extractCodeAssets}
+                autoInitializeInteractions={autoInitializeInteractions}
+                usePx2vw={usePx2vw}
                 onDownloadNode={props.onDownloadNode}
                 onPreviewNode={handlePreviewNode}
               />

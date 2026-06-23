@@ -31,6 +31,139 @@ export interface HtmlOutput {
   css?: string;
 }
 
+type HtmlElementRange = {
+  start: number;
+  end: number;
+};
+
+const voidHtmlTags = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+const getDataLayerValue = (tag: string) =>
+  tag.match(/\sdata-layer=(["'])(.*?)\1/i)?.[2]?.trim() ?? "";
+
+const findDataLayerStartTag = (
+  html: string,
+  layerName: string,
+  fromIndex = 0,
+) => {
+  const tagPattern = /<([a-zA-Z][\w:-]*)(?=[\s/>])[^<>]*>/g;
+  tagPattern.lastIndex = fromIndex;
+
+  let tagMatch: RegExpExecArray | null;
+  while ((tagMatch = tagPattern.exec(html))) {
+    if (getDataLayerValue(tagMatch[0]) === layerName) {
+      return { index: tagMatch.index };
+    }
+  }
+
+  return null;
+};
+
+const getHtmlElementRange = (
+  html: string,
+  startIndex: number,
+): HtmlElementRange | null => {
+  const startTagMatch = html
+    .slice(startIndex)
+    .match(/^<([a-zA-Z][\w:-]*)(?=[\s/>])[^<>]*>/);
+
+  if (!startTagMatch) {
+    return null;
+  }
+
+  const tagName = startTagMatch[1].toLowerCase();
+  const startTag = startTagMatch[0];
+  const startTagEnd = startIndex + startTag.length;
+
+  if (/\/\s*>$/.test(startTag) || voidHtmlTags.has(tagName)) {
+    return { start: startIndex, end: startTagEnd };
+  }
+
+  const sameTagPattern = new RegExp(`<\\/?${tagName}(?=[\\s/>])[^<>]*>`, "gi");
+  sameTagPattern.lastIndex = startTagEnd;
+  let depth = 1;
+  let tagMatch: RegExpExecArray | null;
+
+  while ((tagMatch = sameTagPattern.exec(html))) {
+    const tag = tagMatch[0];
+    const isClosingTag = /^<\//.test(tag);
+    const isSelfClosingTag = /\/\s*>$/.test(tag);
+
+    if (isClosingTag) {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          start: startIndex,
+          end: tagMatch.index + tag.length,
+        };
+      }
+    } else if (!isSelfClosingTag && !voidHtmlTags.has(tagName)) {
+      depth += 1;
+    }
+  }
+
+  return null;
+};
+
+const promoteLayerAfterLayer = (
+  html: string,
+  layerToPromote: string,
+  targetLayer: string,
+) => {
+  const promotedStartTag = findDataLayerStartTag(html, layerToPromote);
+  if (!promotedStartTag) {
+    return html;
+  }
+
+  const promotedRange = getHtmlElementRange(html, promotedStartTag.index);
+  if (!promotedRange) {
+    return html;
+  }
+
+  const promotedHtml = html.slice(promotedRange.start, promotedRange.end);
+  const htmlWithoutPromotedLayer =
+    html.slice(0, promotedRange.start) + html.slice(promotedRange.end);
+  const targetStartTag = findDataLayerStartTag(
+    htmlWithoutPromotedLayer,
+    targetLayer,
+  );
+
+  if (!targetStartTag) {
+    return `${htmlWithoutPromotedLayer}\n${promotedHtml}`;
+  }
+
+  const targetRange = getHtmlElementRange(
+    htmlWithoutPromotedLayer,
+    targetStartTag.index,
+  );
+  if (!targetRange) {
+    return html;
+  }
+
+  return `${htmlWithoutPromotedLayer.slice(
+    0,
+    targetRange.end,
+  )}\n${promotedHtml}${htmlWithoutPromotedLayer.slice(targetRange.end)}`;
+};
+
+const promoteFigmaInteractionModel = (html: string) =>
+  promoteLayerAfterLayer(html, "figma-interaction-model", "body");
+
 // Define HTML generation modes for better type safety
 export type HtmlGenerationMode =
   | "html"
@@ -339,9 +472,13 @@ export const htmlMain = async (
     if (mode === "svelte" && Object.keys(cssCollection).length > 0) {
       // CSS is already included in the Svelte component
     }
-  } else if (Object.keys(cssCollection).length > 0) {
-    // For plain HTML with CSS, include CSS separately
-    output.css = getCollectedCSS();
+  } else {
+    output.html = promoteFigmaInteractionModel(output.html);
+
+    if (Object.keys(cssCollection).length > 0) {
+      // For plain HTML with CSS, include CSS separately
+      output.css = getCollectedCSS();
+    }
   }
 
   return output;
@@ -435,6 +572,7 @@ const htmlWrapSVG = (
 
   const builder = new HtmlDefaultBuilder(node, settings)
     .addData("svg-wrapper")
+    .size()
     .position();
 
   // The SVG content already has the var() references, so we don't need

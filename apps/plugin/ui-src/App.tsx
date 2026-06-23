@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { PluginUI } from "plugin-ui";
+import pluginPackage from "../package.json";
 import {
   Framework,
   PluginSettings,
@@ -415,6 +416,7 @@ export default function App() {
         previewPayload={iframePreviewPayload}
         previewRefreshKey={state.previewRefreshKey}
         includeRelatedFrames={state.includeRelatedFrames}
+        pluginVersion={pluginPackage.version}
         onPreviewUrlChanged={(previewUrl) => {
           setStoredPreviewUrl(previewUrl);
           setState((prevState) => ({
@@ -431,7 +433,14 @@ export default function App() {
             "*",
           );
         }}
-        onDownloadHtmlZip={(extractImages, nodeIds) => {
+        onDownloadHtmlZip={(
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+          autoInitializeInteractions,
+          usePx2vw,
+          nodeIds,
+        ) => {
           const exportNodeIds =
             nodeIds ?? state.selectionPreviewNodes.map((node) => node.id);
 
@@ -446,6 +455,10 @@ export default function App() {
               pluginMessage: {
                 type: "download-html-zip",
                 extractImages,
+                interactiveHtmlExport,
+                extractCodeAssets,
+                autoInitializeInteractions,
+                usePx2vw,
                 nodeIds: exportNodeIds.length > 0 ? exportNodeIds : undefined,
               },
             },
@@ -472,7 +485,14 @@ export default function App() {
             "*",
           );
         }}
-        onDownloadNode={(nodeId, extractImages) => {
+        onDownloadNode={(
+          nodeId,
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+          autoInitializeInteractions,
+          usePx2vw,
+        ) => {
           setState((prevState) => ({
             ...prevState,
             isDownloadLoading: true,
@@ -484,6 +504,10 @@ export default function App() {
               pluginMessage: {
                 type: "download-html-zip",
                 extractImages,
+                interactiveHtmlExport,
+                extractCodeAssets,
+                autoInitializeInteractions,
+                usePx2vw,
                 nodeId,
               },
             },
