@@ -3,6 +3,7 @@ import copy from "copy-to-clipboard";
 import EmptyState from "./components/EmptyState";
 import WarningsPanel from "./components/WarningsPanel";
 import {
+  Framework,
   HTMLPreview,
   IframePreviewPayload,
   LinearGradientConversion,
@@ -23,8 +24,8 @@ type PluginUIProps = {
   code: string;
   htmlPreview: HTMLPreview;
   warnings: Warning[];
-  selectedFramework: string;
-  setSelectedFramework: (framework: string) => void;
+  selectedFramework: Framework;
+  setSelectedFramework: (framework: Framework) => void;
   settings: PluginSettings | null;
   onPreferenceChanged: (
     key: keyof PluginSettings,
@@ -42,10 +43,12 @@ type PluginUIProps = {
   previewUrl: string;
   previewPayload: IframePreviewPayload;
   previewRefreshKey: number;
+  includeRelatedFrames: boolean;
   onPreviewUrlChanged?: (url: string) => void;
-  onDownloadHtmlZip?: (extractImages: boolean) => void;
+  onDownloadHtmlZip?: (extractImages: boolean, nodeIds?: string[]) => void;
   onDownloadNode?: (nodeId: string, extractImages: boolean) => void;
   onPreviewNode?: (nodeId: string) => void;
+  onIncludeRelatedFramesChange?: (enabled: boolean) => void;
 };
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
@@ -292,10 +295,32 @@ export const PluginUI = (props: PluginUIProps) => {
   );
   const renderSelectionHeaderActions = (compact = false) => (
     <div className="flex items-center gap-1">
+      <label
+        className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border bg-background text-xs font-medium text-foreground transition-colors hover:bg-muted ${
+          compact ? "w-8 px-0" : "px-2"
+        }`}
+        title="Find related frames"
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-primary"
+          checked={props.includeRelatedFrames}
+          onChange={(event) =>
+            props.onIncludeRelatedFramesChange?.(event.target.checked)
+          }
+          aria-label="Find related frames"
+        />
+        {!compact && <span>Related</span>}
+      </label>
       {props.onDownloadHtmlZip && selectionNodes.length > 0 && (
         <button
           type="button"
-          onClick={() => props.onDownloadHtmlZip?.(extractImages)}
+          onClick={() =>
+            props.onDownloadHtmlZip?.(
+              extractImages,
+              selectionNodes.map((node) => node.id),
+            )
+          }
           className={
             compact
               ? "inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-foreground transition-colors hover:bg-muted"
