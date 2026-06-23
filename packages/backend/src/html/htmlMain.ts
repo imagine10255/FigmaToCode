@@ -572,6 +572,7 @@ const htmlWrapSVG = (
 
   const builder = new HtmlDefaultBuilder(node, settings)
     .addData("svg-wrapper")
+    .size()
     .position();
 
   // The SVG content already has the var() references, so we don't need

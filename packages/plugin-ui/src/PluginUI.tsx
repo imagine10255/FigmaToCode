@@ -42,6 +42,8 @@ type PluginUIProps = {
   previewUrl: string;
   previewPayload: IframePreviewPayload;
   previewRefreshKey: number;
+  includeRelatedFrames: boolean;
+  pluginVersion?: string;
   onPreviewUrlChanged?: (url: string) => void;
   onDownloadHtmlZip?: (
     extractImages: boolean,
@@ -49,6 +51,7 @@ type PluginUIProps = {
     extractCodeAssets: boolean,
     autoInitializeInteractions: boolean,
     usePx2vw: boolean,
+    nodeIds?: string[],
   ) => void;
   onDownloadNode?: (
     nodeId: string,
@@ -59,6 +62,7 @@ type PluginUIProps = {
     usePx2vw: boolean,
   ) => void;
   onPreviewNode?: (nodeId: string) => void;
+  onIncludeRelatedFramesChange?: (enabled: boolean) => void;
 };
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
@@ -216,6 +220,9 @@ export const PluginUI = (props: PluginUIProps) => {
 
   const warnings = props.warnings ?? [];
   const selectionNodes = props.selectionNodes ?? [];
+  const panelVersionLabel = props.pluginVersion
+    ? `${PANEL_VERSION} · plugin v${props.pluginVersion}`
+    : PANEL_VERSION;
   const previewOrigin = getTargetOrigin(savedPreviewUrl);
   const postPreviewPayload = useCallback(() => {
     if (
@@ -333,6 +340,23 @@ export const PluginUI = (props: PluginUIProps) => {
   );
   const renderSelectionHeaderActions = (compact = false) => (
     <div className="flex items-center gap-1">
+      <label
+        className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border bg-background text-xs font-medium text-foreground transition-colors hover:bg-muted ${
+          compact ? "w-8 px-0" : "px-2"
+        }`}
+        title="Find related frames"
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-primary"
+          checked={props.includeRelatedFrames}
+          onChange={(event) =>
+            props.onIncludeRelatedFramesChange?.(event.target.checked)
+          }
+          aria-label="Find related frames"
+        />
+        {!compact && <span>Related</span>}
+      </label>
       {props.onDownloadHtmlZip && selectionNodes.length > 0 && (
         <button
           type="button"
@@ -343,6 +367,7 @@ export const PluginUI = (props: PluginUIProps) => {
               extractCodeAssets,
               autoInitializeInteractions,
               usePx2vw,
+              selectionNodes.map((node) => node.id),
             )
           }
           className={
@@ -418,7 +443,7 @@ export const PluginUI = (props: PluginUIProps) => {
                       {selectionNodes.length}
                     </span>
                     <span className="ml-2 text-[10px] font-semibold text-primary">
-                      {PANEL_VERSION}
+                      {panelVersionLabel}
                     </span>
                   </p>
                   {renderSelectionHeaderActions(true)}
@@ -500,7 +525,7 @@ export const PluginUI = (props: PluginUIProps) => {
                     {selectionNodes.length}
                   </span>
                   <span className="ml-2 text-[10px] font-semibold text-primary">
-                    {PANEL_VERSION}
+                    {panelVersionLabel}
                   </span>
                 </p>
                 {renderSelectionHeaderActions()}

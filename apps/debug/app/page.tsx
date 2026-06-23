@@ -54,6 +54,7 @@ export default function Web() {
                   sections: [],
                 }}
                 previewRefreshKey={0}
+                includeRelatedFrames={false}
               />
             </div>
           </div>
@@ -91,6 +92,7 @@ export default function Web() {
                   sections: [],
                 }}
                 previewRefreshKey={0}
+                includeRelatedFrames={false}
               />
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { PluginUI } from "plugin-ui";
+import pluginPackage from "../package.json";
 import {
   Framework,
   PluginSettings,
@@ -41,6 +42,7 @@ interface AppState {
   downloadProgress: number;
   downloadProgressLabel: string;
   previewRefreshKey: number;
+  includeRelatedFrames: boolean;
 }
 
 const emptyPreview = { size: { width: 0, height: 0 }, content: "" };
@@ -102,6 +104,7 @@ export default function App() {
     downloadProgress: 0,
     downloadProgressLabel: "",
     previewRefreshKey: 0,
+    includeRelatedFrames: false,
   });
 
   const rootStyles = getComputedStyle(document.documentElement);
@@ -412,6 +415,8 @@ export default function App() {
         previewUrl={state.previewUrl}
         previewPayload={iframePreviewPayload}
         previewRefreshKey={state.previewRefreshKey}
+        includeRelatedFrames={state.includeRelatedFrames}
+        pluginVersion={pluginPackage.version}
         onPreviewUrlChanged={(previewUrl) => {
           setStoredPreviewUrl(previewUrl);
           setState((prevState) => ({
@@ -434,7 +439,11 @@ export default function App() {
           extractCodeAssets,
           autoInitializeInteractions,
           usePx2vw,
+          nodeIds,
         ) => {
+          const exportNodeIds =
+            nodeIds ?? state.selectionPreviewNodes.map((node) => node.id);
+
           setState((prevState) => ({
             ...prevState,
             isDownloadLoading: true,
@@ -450,6 +459,27 @@ export default function App() {
                 extractCodeAssets,
                 autoInitializeInteractions,
                 usePx2vw,
+                nodeIds: exportNodeIds.length > 0 ? exportNodeIds : undefined,
+              },
+            },
+            "*",
+          );
+        }}
+        onIncludeRelatedFramesChange={(enabled) => {
+          const selectedNodeIds = state.selectionPreviewNodes.map(
+            (node) => node.id,
+          );
+
+          setState((prevState) => ({
+            ...prevState,
+            includeRelatedFrames: enabled,
+          }));
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: "set-related-frame-search",
+                enabled,
+                nodeIds: enabled ? selectedNodeIds : undefined,
               },
             },
             "*",

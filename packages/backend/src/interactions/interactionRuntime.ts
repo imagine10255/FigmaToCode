@@ -17,6 +17,12 @@ export const interactionRuntimeCSS = `
   box-sizing: border-box;
 }
 
+[data-svg-wrapper] > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .figma-swiper {
   display: block;
   overflow: hidden;

@@ -205,6 +205,7 @@ test("interactive HTML export stamps nodes and embeds runtime", async () => {
   assert.match(output.html, /figma-interaction-model/);
   assert.match(output.html, /"sourceId": "button-a"/);
   assert.match(output.css ?? "", /data-fig-page/);
+  assert.match(output.css ?? "", /data-svg-wrapper/);
 });
 
 test("interactive HTML export stamps carousel attributes", async () => {
