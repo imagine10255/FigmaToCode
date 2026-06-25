@@ -67,7 +67,7 @@ type PluginUIProps = {
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
 const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
-const PANEL_VERSION = "v260615-1630";
+const PANEL_VERSION = "v260625-0805";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
@@ -432,40 +432,9 @@ export const PluginUI = (props: PluginUIProps) => {
             <div
               className="grid h-full min-h-[640px] gap-3 px-3 py-3"
               style={{
-                gridTemplateColumns: `360px ${PREVIEW_PANEL_WIDTH}px`,
+                gridTemplateColumns: `${PREVIEW_PANEL_WIDTH}px 360px`,
               }}
             >
-              <div className="min-h-0 overflow-hidden rounded-md border bg-card">
-                <div className="flex h-11 items-center justify-between border-b px-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    Selected Frames
-                    <span className="ml-2 text-xs font-medium text-muted-foreground">
-                      {selectionNodes.length}
-                    </span>
-                    <span className="ml-2 text-[10px] font-semibold text-primary">
-                      {panelVersionLabel}
-                    </span>
-                  </p>
-                  {renderSelectionHeaderActions(true)}
-                </div>
-                <div className="flex h-[calc(100%-44px)] flex-col gap-2 overflow-auto p-2">
-                  {pluginUiConfig.showPreviewSettingsButton &&
-                    showSettings &&
-                    settingsPanel}
-                  <SelectionList
-                    nodes={selectionNodes}
-                    activePreviewNodeId={props.activePreviewNodeId}
-                    extractImages={extractImages}
-                    interactiveHtmlExport={interactiveHtmlExport}
-                    extractCodeAssets={extractCodeAssets}
-                    autoInitializeInteractions={autoInitializeInteractions}
-                    usePx2vw={usePx2vw}
-                    onDownloadNode={props.onDownloadNode}
-                    onPreviewNode={handlePreviewNode}
-                  />
-                </div>
-              </div>
-
               <div className="flex min-h-0 flex-col gap-2">
                 <div className="flex h-11 shrink-0 items-center justify-between gap-2">
                   <div className="flex min-w-0 flex-col justify-center">
@@ -510,6 +479,37 @@ export const PluginUI = (props: PluginUIProps) => {
                     className="h-full w-full border-0 bg-white"
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     onLoad={postPreviewPayload}
+                  />
+                </div>
+              </div>
+
+              <div className="min-h-0 overflow-hidden rounded-md border bg-card">
+                <div className="flex h-11 items-center justify-between border-b px-3">
+                  <p className="text-sm font-semibold text-foreground">
+                    Selected Frames
+                    <span className="ml-2 text-xs font-medium text-muted-foreground">
+                      {selectionNodes.length}
+                    </span>
+                    <span className="ml-2 text-[10px] font-semibold text-primary">
+                      {panelVersionLabel}
+                    </span>
+                  </p>
+                  {renderSelectionHeaderActions(true)}
+                </div>
+                <div className="flex h-[calc(100%-44px)] flex-col gap-2 overflow-auto p-2">
+                  {pluginUiConfig.showPreviewSettingsButton &&
+                    showSettings &&
+                    settingsPanel}
+                  <SelectionList
+                    nodes={selectionNodes}
+                    activePreviewNodeId={props.activePreviewNodeId}
+                    extractImages={extractImages}
+                    interactiveHtmlExport={interactiveHtmlExport}
+                    extractCodeAssets={extractCodeAssets}
+                    autoInitializeInteractions={autoInitializeInteractions}
+                    usePx2vw={usePx2vw}
+                    onDownloadNode={props.onDownloadNode}
+                    onPreviewNode={handlePreviewNode}
                   />
                 </div>
               </div>
