@@ -174,7 +174,10 @@ const DownloadPreviewFrame = ({
 
 const DEFAULT_PREVIEW_URL = "https://help.gdg168.com/";
 const PREVIEW_URL_STORAGE_KEY = "bitstackPreviewUrl";
-const PANEL_VERSION = "v260615-1630";
+// build 時由 apps/plugin/vite.config.ts 帶入（vYYMMDD-HHmm），用來確認 Figma 載入的是哪一次 build
+declare const __PANEL_BUILD_VERSION__: string | undefined;
+const PANEL_VERSION =
+  typeof __PANEL_BUILD_VERSION__ !== "undefined" ? __PANEL_BUILD_VERSION__ : "dev";
 const DEFAULT_WINDOW_SIZE = { width: 450, height: 700 };
 const PREVIEW_PANEL_WIDTH = 1050;
 const PREVIEW_WINDOW_WIDTH = 1430;
