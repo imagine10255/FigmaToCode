@@ -5,6 +5,7 @@ import {
   renderHelpPageColorCSS,
 } from "./helpPageColors.ts";
 import { interactionRuntimeScript } from "./interactionRuntime.ts";
+import { collectInteractionModel } from "./interactionModel.ts";
 
 const rgb = (r: number, g: number, b: number, a = 1) => ({ r, g, b, a });
 
@@ -119,4 +120,29 @@ test("runtime publishes _HELP_PAGE state and never overwrites host content", () 
     interactionRuntimeScript,
     /!targetPagination\.matches\(HELP_PAGE_SELECTOR\)/,
   );
+});
+
+test("runtime stamps each swiper-slide with the Figma layer name", () => {
+  assert.match(interactionRuntimeScript, /function getSlideLayerName/);
+  assert.match(
+    interactionRuntimeScript,
+    /slide\.setAttribute\("data-layer", slideLayerName\)/,
+  );
+});
+
+test("interaction model keeps the main component id of instances", () => {
+  const model = collectInteractionModel([
+    {
+      id: "32:17321",
+      name: "動態調整",
+      type: "INSTANCE",
+      componentId: "32:9314",
+      children: [],
+    } as any,
+    { id: "32:9314", name: "Property 1=a1", type: "COMPONENT", children: [] } as any,
+  ]);
+
+  assert.equal(model.nodes[0].componentId, "32:9314");
+  assert.equal(model.nodes[1].componentId, undefined);
+  assert.match(interactionRuntimeScript, /nodeById\.get\(node\.componentId\)/);
 });

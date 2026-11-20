@@ -913,6 +913,25 @@ function initializeFigmaInteractions(model) {
     }
   };
 
+  // swiper-slide 的 data-layer 取 Figma 原稿名稱，供宿主依名稱挑選 / 刪除頁面。
+  // variant 名稱（Property 1=a8）只取值（a8）；多個屬性以 ", " 串接。
+  function getSlideLayerName(slideRootId, slideRoot) {
+    var node = nodeById.get(slideRootId);
+    // instance（例如畫面上的第一頁）改用主元件名稱，與其他頁的 variant 名稱一致
+    var component = node && node.type === "INSTANCE" && node.componentId ? nodeById.get(node.componentId) : null;
+    var name = ((component && component.name) || (node && node.name) || slideRoot.getAttribute("data-layer") || "").trim();
+    var parts = name.split(",").map(function (part) {
+      return part.trim();
+    });
+    var isVariant = parts.every(function (part) {
+      return /^[^=]+=.+$/.test(part);
+    });
+    if (!name || !isVariant) return name;
+    return parts.map(function (part) {
+      return part.slice(part.indexOf("=") + 1).trim();
+    }).join(", ");
+  }
+
   function initFigmaSwiperCarousel(root, SwiperConstructor) {
     if (!root) {
       return;
@@ -986,6 +1005,10 @@ function initializeFigmaInteractions(model) {
       var slide = document.createElement("div");
       slide.className = "swiper-slide";
       slide.setAttribute("data-fig-swiper-slide-id", slideRootId);
+      var slideLayerName = getSlideLayerName(slideRootId, slideRoot);
+      if (slideLayerName) {
+        slide.setAttribute("data-layer", slideLayerName);
+      }
       slide.style.display = "block";
       slide.style.overflow = "hidden";
       slide.style.position = "relative";
