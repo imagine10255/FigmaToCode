@@ -167,10 +167,10 @@ const EmptyState = () => {
 
       {/* Copy */}
       <h3 className="text-[15px] font-medium text-neutral-800 dark:text-neutral-200">
-        Nothing selected
+        還沒有選取任何框
       </h3>
       <p className="mt-2 max-w-[280px] text-sm leading-5 text-neutral-600 dark:text-neutral-400">
-        Select a layer to get started
+        在 Figma 點一個說明頁的框（例如 21008_cm），再按上方「找出所有語言」就能一次列出全部語言。
       </p>
     </div>
   );

@@ -21,8 +21,16 @@ import { htmlCodeGenTextStyles } from "backend/src/html/htmlMain";
 import { swiftUICodeGenTextStyles } from "backend/src/swiftui/swiftuiMain";
 import { composeCodeGenTextStyles } from "backend/src/compose/composeMain";
 import {
+  getExportStats,
+  getTotalExportMs,
+  resetExportStats,
+  setExportProgressListener,
+} from "backend/src/common/exportAsyncProxy";
+import {
   DownloadHtmlZipMessage,
+  DownloadPreviewReadyMessage,
   HtmlZipProgressMessage,
+  PreviewDownloadMessage,
   HtmlZipFile,
   PluginSettings,
   SelectionPreviewNode,
@@ -32,6 +40,8 @@ import {
 
 let userPluginSettings: PluginSettings;
 const previewUrlStorageKey = "bitstackPreviewUrl";
+// Export checkboxes (interactive, _assets, css/js, px2vw), kept between runs.
+const exportOptionsStorageKey = "bitstackExportOptions";
 const defaultPreviewUrl = "https://help.gdg168.com/";
 const forcedDefaultSettingKeys = new Set<keyof PluginSettings>([
   "framework",
@@ -566,7 +576,47 @@ const dedupeNodes = (nodes: readonly SceneNode[]) => {
   return dedupedNodes;
 };
 
-const findRelatedLocaleFrames = (selectedNodes: readonly SceneNode[]) => {
+// Locale frames of every page, in page order. Scanning all pages is slow in big files
+// (a preview page can hold thousands of layers), so the result is kept until a frame is
+// created, deleted or renamed, and only page tops, sections and groups are searched,
+// which is where the help pages sit (page > Section > 21008_xx).
+let localeFrameCache: SceneNode[] | null = null;
+
+const collectLocaleFrames = (
+  nodes: readonly SceneNode[],
+  found: SceneNode[],
+) => {
+  for (const node of nodes) {
+    if (node.type === "FRAME" && getRelatedFramePrefix(node)) {
+      found.push(node);
+    } else if (node.type === "SECTION" || node.type === "GROUP") {
+      collectLocaleFrames(node.children, found);
+    }
+  }
+};
+
+const getAllLocaleFrames = async () => {
+  if (!localeFrameCache) {
+    await figma.loadAllPagesAsync();
+    const found: SceneNode[] = [];
+    for (const page of figma.root.children) {
+      collectLocaleFrames(page.children, found);
+    }
+    localeFrameCache = found;
+  }
+  return localeFrameCache.filter((node) => !node.removed);
+};
+
+const affectsLocaleFrames = (event: DocumentChangeEvent) =>
+  event.documentChanges.some(
+    (change) =>
+      change.type === "CREATE" ||
+      change.type === "DELETE" ||
+      (change.type === "PROPERTY_CHANGE" && change.properties.includes("name")),
+  );
+
+// Each language usually sits on its own page (cn, cm, en, …), so every page is searched.
+const findRelatedLocaleFrames = async (selectedNodes: readonly SceneNode[]) => {
   const seedNodes = selectedNodes
     .map((node) => getRelatedFrameSeedNode(node))
     .filter((node): node is SceneNode => Boolean(node));
@@ -575,13 +625,7 @@ const findRelatedLocaleFrames = (selectedNodes: readonly SceneNode[]) => {
       .map((node) => getRelatedFramePrefix(node))
       .filter((prefix): prefix is string => Boolean(prefix)),
   );
-  const localeFrames = figma.currentPage.findAll((node) => {
-    if (node.type !== "FRAME") {
-      return false;
-    }
-
-    return Boolean(getRelatedFramePrefix(node));
-  });
+  const localeFrames = await getAllLocaleFrames();
 
   if (prefixes.size === 0) {
     return localeFrames;
@@ -595,24 +639,24 @@ const findRelatedLocaleFrames = (selectedNodes: readonly SceneNode[]) => {
   return dedupeNodes([...relatedFrames, ...seedNodes]);
 };
 
-const buildSelectionPreviewNodes = (
+const buildSelectionPreviewNodes = async (
   includeRelatedFrames = false,
   sourceNodes: readonly SceneNode[] = figma.currentPage.selection,
-): SelectionPreviewNode[] => {
+): Promise<SelectionPreviewNode[]> => {
   const previewNodes = includeRelatedFrames
-    ? findRelatedLocaleFrames(sourceNodes)
+    ? await findRelatedLocaleFrames(sourceNodes)
     : sourceNodes;
 
   return previewNodes.map(buildSelectionPreviewNode);
 };
 
-const postSelectionPreviewData = (
+const postSelectionPreviewData = async (
   includeRelatedFrames = false,
   sourceNodes?: readonly SceneNode[],
 ) => {
   figma.ui.postMessage({
     type: "selection-preview-data",
-    nodes: buildSelectionPreviewNodes(includeRelatedFrames, sourceNodes),
+    nodes: await buildSelectionPreviewNodes(includeRelatedFrames, sourceNodes),
   });
 };
 
@@ -833,6 +877,21 @@ const getInteractionTemplateNodes = async (
   return templateNodes;
 };
 
+// Where the time of the last export went, shown in the plugin so slow steps can be found.
+// Stage times exclude the image/vector exports that happen inside them, which are listed
+// on their own.
+type ExportTiming = {
+  totalMs: number;
+  frames: number;
+  structureMs: number;
+  htmlMs: number;
+  postMs: number;
+  images: { count: number; ms: number };
+  vectors: { count: number; ms: number };
+};
+let lastExportTiming: ExportTiming | null = null;
+let lastExportWasCached = false;
+
 const buildHtmlExportSections = async (
   settings: PluginSettings,
   extractImages: boolean,
@@ -858,13 +917,34 @@ const buildHtmlExportSections = async (
   const sections: HtmlExportSection[] = [];
   const multiExport = selectedNodes.length > 1;
   const usedFolderNames = new Map<string, number>();
+  const runStart = Date.now();
+  const timing: ExportTiming = {
+    totalMs: 0,
+    frames: selectedNodes.length,
+    structureMs: 0,
+    htmlMs: 0,
+    postMs: 0,
+    images: { count: 0, ms: 0 },
+    vectors: { count: 0, ms: 0 },
+  };
+  resetExportStats();
+  // Time since `start`, minus the exports that ran in between.
+  const stageMs = (start: number, exportMsAtStart: number) =>
+    Date.now() - start - (getTotalExportMs() - exportMsAtStart);
 
   for (const [index, node] of selectedNodes.entries()) {
-    postHtmlZipProgress(
-      index,
-      selectedNodes.length,
-      `Preparing ${node.name || `section ${index + 1}`}...`,
-    );
+    const sectionLabel = node.name || `section ${index + 1}`;
+    postHtmlZipProgress(index, selectedNodes.length, `正在處理 ${sectionLabel}…`);
+    // A frame can take a while; show the running count of exported layers and images.
+    setExportProgressListener((count) => {
+      if (count % 5 === 0) {
+        postHtmlZipProgress(
+          index,
+          selectedNodes.length,
+          `正在處理 ${sectionLabel}…（已匯出 ${count} 個圖層／圖片）`,
+        );
+      }
+    });
     const baseName = sanitizeFileName(
       node.name,
       `section-${(index + 1).toString().padStart(2, "0")}`,
@@ -872,6 +952,8 @@ const buildHtmlExportSections = async (
     const folder = multiExport
       ? getUniqueFolderName(baseName, usedFolderNames)
       : baseName;
+    let stageStart = Date.now();
+    let exportMsAtStart = getTotalExportMs();
     const convertedSelection = settings.useOldPluginVersion2025
       ? oldConvertNodesToAltNodes([node], null)
       : await nodesToJSON([node], exportSettings);
@@ -879,6 +961,9 @@ const buildHtmlExportSections = async (
     const templateNodes = interactiveHtmlExport
       ? await getInteractionTemplateNodes(convertedSceneNodes, exportSettings)
       : [];
+    timing.structureMs += stageMs(stageStart, exportMsAtStart);
+    stageStart = Date.now();
+    exportMsAtStart = getTotalExportMs();
     const result = interactiveHtmlExport
       ? await interactiveHtmlMain(
           convertedSceneNodes,
@@ -887,6 +972,8 @@ const buildHtmlExportSections = async (
           templateNodes,
         )
       : await htmlMain(convertedSceneNodes, exportSettings);
+    timing.htmlMs += stageMs(stageStart, exportMsAtStart);
+    stageStart = Date.now();
     const assets: HtmlZipFile[] = [];
     const htmlWithAssets = extractImages
       ? extractDataUrlAssets(result.html, "image", assets)
@@ -916,17 +1003,65 @@ const buildHtmlExportSections = async (
       usesSwiper: html.includes("data-fig-carousel-root"),
       assets,
     });
+    timing.postMs += Date.now() - stageStart;
+    setExportProgressListener(null);
     postHtmlZipProgress(
       index + 1,
       selectedNodes.length,
-      `Prepared ${node.name || `section ${index + 1}`}`,
+      `完成 ${sectionLabel}`,
     );
   }
+
+  const stats = getExportStats();
+  for (const format of Object.keys(stats)) {
+    const bucket = /SVG/.test(format)
+      ? timing.vectors
+      : /PNG|JPG/.test(format)
+        ? timing.images
+        : null;
+    if (bucket) {
+      bucket.count += stats[format].count;
+      bucket.ms += stats[format].ms;
+    }
+  }
+  timing.totalMs = Date.now() - runStart;
+  lastExportTiming = timing;
+  console.log("[timing] export", timing);
 
   return sections;
 };
 
-const buildHtmlDownload = async (
+// Exports are kept until the document or settings change. Building the interactive html
+// (every variant and image) is the slow part, so previewing a frame and then downloading
+// it, or previewing it again, only builds it once.
+const exportCache = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof buildHtmlDownloadUncached>>>
+>();
+
+const buildHtmlDownload = (
+  ...args: Parameters<typeof buildHtmlDownloadUncached>
+) => {
+  const [, ...options] = args;
+  const target = args[6];
+  // Without explicit ids the export uses the current selection, which is then part of the key.
+  const selectionIds =
+    target?.nodeId || target?.nodeIds?.length
+      ? null
+      : figma.currentPage.selection.map((node) => node.id);
+  const key = JSON.stringify([options, selectionIds]);
+  let pending = exportCache.get(key);
+  lastExportWasCached = Boolean(pending);
+  if (!pending) {
+    pending = buildHtmlDownloadUncached(...args);
+    exportCache.set(key, pending);
+    // A failed export is not kept, so trying again builds it again.
+    pending.catch(() => exportCache.delete(key));
+  }
+  return pending;
+};
+
+const buildHtmlDownloadUncached = async (
   settings: PluginSettings,
   extractImages: boolean,
   interactiveHtmlExport: boolean = false,
@@ -949,11 +1084,13 @@ const buildHtmlDownload = async (
     usePx2vw,
     selectedNodes,
   );
+  const timing = lastExportTiming;
 
   if (!extractImages && !extractCodeAssets && sections.length === 1) {
     const section = sections[0];
 
     return {
+      timing,
       type: "html-file-ready" as const,
       fileName: section.fileName,
       content: wrapHtmlDocument(section.name, section.html, section.css, {
@@ -1035,6 +1172,7 @@ const buildHtmlDownload = async (
   }
 
   return {
+    timing,
     type: "html-zip-ready" as const,
     fileName: getZipFileName(selectedNodes, sections),
     files,
@@ -1110,6 +1248,127 @@ const buildHtmlPreviewForNode = async (
   };
 };
 
+// ---- Font check ---------------------------------------------------------------------
+
+type FontUsage = {
+  family: string;
+  style: string;
+  chars: number;
+  // Language frames using it, with how many characters each.
+  frames: { name: string; chars: number }[];
+  layerIds: string[];
+  sample: string;
+  missing: boolean;
+};
+
+// Text layers of a frame, including the other variants of every component set used in it
+// (the other tabs and pages of a help page live there, not in the frame itself).
+const getFrameTextNodes = async (frame: SceneNode) => {
+  const texts = new Map<string, TextNode>();
+  if (!("findAllWithCriteria" in frame)) {
+    return [];
+  }
+  const container = frame as FrameNode;
+  for (const text of container.findAllWithCriteria({ types: ["TEXT"] })) {
+    texts.set(text.id, text);
+  }
+  const variantSets = new Set<string>();
+  for (const instance of container.findAllWithCriteria({ types: ["INSTANCE"] })) {
+    const main = await instance.getMainComponentAsync();
+    const set = main?.parent;
+    if (set && set.type === "COMPONENT_SET" && !variantSets.has(set.id)) {
+      variantSets.add(set.id);
+      for (const text of set.findAllWithCriteria({ types: ["TEXT"] })) {
+        texts.set(text.id, text);
+      }
+    }
+  }
+  return [...texts.values()];
+};
+
+const collectFontUsage = async (nodeIds: readonly string[]) => {
+  const usage = new Map<string, FontUsage>();
+  // Awaited into variables first: Figma's plugin engine (QuickJS) cannot compile
+  // `for (… of await …)` once it is built down to generators, and the whole plugin
+  // then fails to load with "stack underflow".
+  const frames = await getSceneNodesByIds(nodeIds);
+  for (const frame of frames) {
+    const charsInFrame = new Map<string, number>();
+    const texts = await getFrameTextNodes(frame);
+    for (const text of texts) {
+      for (const segment of text.getStyledTextSegments(["fontName"])) {
+        const font = segment.fontName;
+        const key = `${font.family}|${font.style}`;
+        const characters = segment.characters.replace(/\s+/g, "");
+        if (!characters) {
+          continue;
+        }
+        let entry = usage.get(key);
+        if (!entry) {
+          entry = {
+            family: font.family,
+            style: font.style,
+            chars: 0,
+            frames: [],
+            layerIds: [],
+            sample: "",
+            missing: false,
+          };
+          usage.set(key, entry);
+        }
+        entry.chars += characters.length;
+        entry.missing = entry.missing || text.hasMissingFont;
+        if (!entry.layerIds.includes(text.id)) {
+          entry.layerIds.push(text.id);
+        }
+        if (entry.sample.length < 24) {
+          entry.sample = (entry.sample + characters).slice(0, 24);
+        }
+        charsInFrame.set(key, (charsInFrame.get(key) ?? 0) + characters.length);
+      }
+    }
+    charsInFrame.forEach((chars, key) =>
+      usage.get(key)?.frames.push({ name: frame.name, chars }),
+    );
+  }
+  return [...usage.values()].sort((a, b) => b.chars - a.chars);
+};
+
+// Programmatic selection (from the font check) must not reshuffle the frame list.
+let ignoreSelectionChangeUntil = 0;
+
+const selectLayers = async (layerIds: readonly string[]) => {
+  const layers: SceneNode[] = [];
+  for (const id of layerIds) {
+    const node = await figma.getNodeByIdAsync(id);
+    if (node && "visible" in node) {
+      layers.push(node as SceneNode);
+    }
+  }
+  if (layers.length === 0) {
+    return;
+  }
+  // Select on the page of the first layer; layers on other pages cannot be selected with it.
+  let page: BaseNode | null = layers[0];
+  while (page && page.type !== "PAGE") {
+    page = page.parent;
+  }
+  if (!page) {
+    return;
+  }
+  const onPage = layers.filter((layer) => {
+    let current: BaseNode | null = layer;
+    while (current && current.type !== "PAGE") {
+      current = current.parent;
+    }
+    return current?.id === page!.id;
+  });
+  ignoreSelectionChangeUntil = Date.now() + 1500;
+  await figma.setCurrentPageAsync(page as PageNode);
+  figma.currentPage.selection = onPage;
+  figma.viewport.scrollAndZoomIntoView(onPage);
+};
+
 const standardMode = async () => {
   console.log("[DEBUG] standardMode - Starting standard mode initialization");
   figma.showUI(__html__, { width: 450, height: 700, themeColors: true });
@@ -1124,20 +1383,33 @@ const standardMode = async () => {
     await initSettings();
   };
 
-  // Listen for selection changes
+  // Clicks and edits come in bursts (dragging fires dozens of changes), so the list is
+  // refreshed once things settle instead of on every event.
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleSelectionRefresh = (delay: number) => {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+    }
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      postSelectionPreviewData(includeRelatedFrames);
+    }, delay);
+  };
+
   figma.on("selectionchange", () => {
-    console.log(
-      "[DEBUG] selectionchange event - New selection count:",
-      figma.currentPage.selection.length,
-    );
-    postSelectionPreviewData(includeRelatedFrames);
+    if (Date.now() < ignoreSelectionChangeUntil) {
+      return;
+    }
+    scheduleSelectionRefresh(120);
   });
 
-  // Listen for page changes
   figma.loadAllPagesAsync();
-  figma.on("documentchange", () => {
-    console.log("[DEBUG] documentchange event triggered");
-    postSelectionPreviewData(includeRelatedFrames);
+  figma.on("documentchange", (event) => {
+    exportCache.clear();
+    if (affectsLocaleFrames(event)) {
+      localeFrameCache = null;
+    }
+    scheduleSelectionRefresh(400);
   });
 
   figma.ui.onmessage = async (msg) => {
@@ -1149,10 +1421,22 @@ const standardMode = async () => {
     if (msg.type === "ui-ready") {
       await initializeOnce();
       await postPreviewUrlSetting();
+      const exportOptions = await figma.clientStorage.getAsync(
+        exportOptionsStorageKey,
+      );
+      if (exportOptions && typeof exportOptions === "object") {
+        figma.ui.postMessage({ type: "export-options", options: exportOptions });
+      }
+    } else if (msg.type === "save-export-options") {
+      await figma.clientStorage.setAsync(
+        exportOptionsStorageKey,
+        (msg as { options: unknown }).options,
+      );
     } else if (msg.type === "pluginSettingWillChange") {
       const { key, value } = msg as SettingWillChangeMessage<unknown>;
       console.log(`[DEBUG] Setting changed: ${key} = ${value}`);
       (userPluginSettings as any)[key] = value;
+      exportCache.clear();
       figma.clientStorage.setAsync("userPluginSettings", userPluginSettings);
     } else if (msg.type === "download-html-zip") {
       try {
@@ -1175,15 +1459,132 @@ const standardMode = async () => {
           { nodeId, nodeIds },
         );
         figma.ui.postMessage(downloadData);
+        figma.ui.postMessage({
+          type: "export-timing",
+          purpose: "download",
+          cached: lastExportWasCached,
+          timing: downloadData.timing,
+        });
       } catch (error) {
         figma.ui.postMessage({
           type: "html-zip-error",
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    } else if (msg.type === "preview-download") {
+      // Built by the same buildHtmlDownload as the Download button, so the preview is
+      // exactly the html in the zip.
+      try {
+        const {
+          nodeId,
+          extractImages,
+          interactiveHtmlExport,
+          extractCodeAssets,
+          autoInitializeInteractions,
+          usePx2vw,
+        } = msg as PreviewDownloadMessage;
+        const downloadData = await buildHtmlDownload(
+          userPluginSettings,
+          extractImages,
+          Boolean(interactiveHtmlExport),
+          Boolean(extractCodeAssets),
+          autoInitializeInteractions !== false,
+          Boolean(usePx2vw),
+          { nodeId },
+        );
+        figma.ui.postMessage({
+          type: "download-preview-ready",
+          nodeId,
+          fileName: downloadData.fileName,
+          files:
+            downloadData.type === "html-zip-ready"
+              ? downloadData.files
+              : [
+                  {
+                    path: downloadData.fileName,
+                    content: downloadData.content,
+                    encoding: "text",
+                  },
+                ],
+        } as DownloadPreviewReadyMessage);
+        figma.ui.postMessage({
+          type: "export-timing",
+          purpose: "preview",
+          cached: lastExportWasCached,
+          timing: downloadData.timing,
+        });
+      } catch (error) {
+        figma.ui.postMessage({
+          type: "download-preview-error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else if (msg.type === "check-fonts") {
+      try {
+        const { nodeIds } = msg as { nodeIds: string[] };
+        figma.ui.postMessage({
+          type: "font-report",
+          fonts: await collectFontUsage(nodeIds),
+          frameCount: nodeIds.length,
+        });
+      } catch (error) {
+        figma.ui.postMessage({
+          type: "font-report-error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else if (msg.type === "select-layers") {
+      await selectLayers((msg as { layerIds: string[] }).layerIds);
+    } else if (msg.type === "preview-grid") {
+      // One "preview download" per frame, sent as each is ready so the grid fills in.
+      const {
+        nodeIds,
+        extractImages,
+        interactiveHtmlExport,
+        extractCodeAssets,
+        autoInitializeInteractions,
+        usePx2vw,
+      } = msg as Omit<PreviewDownloadMessage, "type" | "nodeId"> & {
+        nodeIds: string[];
+      };
+      for (const nodeId of nodeIds) {
+        try {
+          const downloadData = await buildHtmlDownload(
+            userPluginSettings,
+            extractImages,
+            Boolean(interactiveHtmlExport),
+            Boolean(extractCodeAssets),
+            autoInitializeInteractions !== false,
+            Boolean(usePx2vw),
+            { nodeId },
+          );
+          figma.ui.postMessage({
+            type: "grid-preview-item",
+            nodeId,
+            files:
+              downloadData.type === "html-zip-ready"
+                ? downloadData.files
+                : [
+                    {
+                      path: downloadData.fileName,
+                      content: downloadData.content,
+                      encoding: "text",
+                    },
+                  ],
+          });
+        } catch (error) {
+          figma.ui.postMessage({
+            type: "grid-preview-item",
+            nodeId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      figma.ui.postMessage({ type: "grid-preview-done" });
     } else if (msg.type === "set-related-frame-search") {
       const { enabled, nodeIds } = msg as SetRelatedFrameSearchMessage;
       includeRelatedFrames = enabled;
+      localeFrameCache = null;
       const sourceNodes =
         enabled && nodeIds?.length
           ? await getSceneNodesByIds(nodeIds)

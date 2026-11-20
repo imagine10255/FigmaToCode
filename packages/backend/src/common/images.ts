@@ -70,14 +70,22 @@ export const nodeHasImageFill = (node: MinimalFillsMixin): Boolean =>
 export const nodeHasMultipleFills = (node: MinimalFillsMixin) =>
   node.fills instanceof Array && node.fills.length > 1;
 
+// figma.base64Encode is native; building the binary string one byte at a time took
+// seconds per large image inside Figma's plugin sandbox. Both give the same base64.
 const imageBytesToBase64 = (bytes: Uint8Array): string => {
-  // Convert Uint8Array to binary string
-  const binaryString = bytes.reduce((data, byte) => {
-    return data + String.fromCharCode(byte);
-  }, "");
-
-  // Encode binary string to base64
-  const b64 = btoa(binaryString);
+  let b64: string;
+  if (typeof figma !== "undefined" && typeof figma.base64Encode === "function") {
+    b64 = figma.base64Encode(bytes);
+  } else {
+    let binaryString = "";
+    for (let index = 0; index < bytes.length; index += 0x8000) {
+      binaryString += String.fromCharCode.apply(
+        null,
+        Array.from(bytes.subarray(index, index + 0x8000)),
+      );
+    }
+    b64 = btoa(binaryString);
+  }
 
   return `data:image/png;base64,${b64}`;
 };

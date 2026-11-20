@@ -119,6 +119,17 @@ export type HtmlZipProgressMessage = Message & {
   total: number;
   label: string;
 };
+// Same options as a download, but the files are shown in the plugin instead of zipped.
+export type PreviewDownloadMessage = Omit<DownloadHtmlZipMessage, "type"> & {
+  type: "preview-download";
+  nodeId: string;
+};
+export type DownloadPreviewReadyMessage = Message & {
+  type: "download-preview-ready";
+  nodeId: string;
+  fileName: string;
+  files: HtmlZipFile[];
+};
 export type PreviewRgb = {
   r: number;
   g: number;
