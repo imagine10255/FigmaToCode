@@ -4,6 +4,7 @@ import {
   collectCarouselAttributes,
   collectInteractionModel,
 } from "./interactionModel";
+import { renderHelpPageColorCSS } from "./helpPageColors";
 import {
   interactionRuntimeCSS,
   renderInteractionScripts,
@@ -33,7 +34,13 @@ export const interactiveHtmlMain = async (
     html: `${output.html}
 ${templateHtml}
 ${renderInteractionScripts(model)}`,
-    css: [output.css, interactionRuntimeCSS].filter(Boolean).join("\n\n"),
+    css: [
+      output.css,
+      interactionRuntimeCSS,
+      renderHelpPageColorCSS([...sceneNode, ...templateNodes]),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   };
 };
 

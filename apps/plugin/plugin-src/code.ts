@@ -396,7 +396,8 @@ const appendHelpControlCSS = (css?: string) => {
 }`;
 
   const helpControlCSS = `[data-layer="_HELP_NAV_PREV"],
-[data-layer="_HELP_NAV_NEXT"] {
+[data-layer="_HELP_NAV_NEXT"],
+[data-layer="_HELP_PAGE"] {
   z-index: 2;
 }
 

@@ -839,6 +839,80 @@ function initializeFigmaInteractions(model) {
     return clone;
   }
 
+  var HELP_PAGE_SELECTOR = '[data-layer="_HELP_PAGE"]';
+
+  function padHelpPageNumber(value) {
+    return value < 10 ? "0" + value : String(value);
+  }
+
+  function getHelpPageState(swiper) {
+    var total = swiper && swiper.slides ? swiper.slides.length : 0;
+    var current = total ? Math.min(Math.max(swiper.activeIndex || 0, 0), total - 1) + 1 : 0;
+    return {
+      current: current,
+      total: total,
+      currentText: padHelpPageNumber(current),
+      totalText: padHelpPageNumber(total)
+    };
+  }
+
+  // Figma 原稿的分頁（例如 01 / 14）：純數字的文字圖層，第一個是目前頁、最後一個是總頁數。
+  // 只在第一次標記；宿主替換掉 _HELP_PAGE 的內容後標記跟著消失，runtime 就不再改寫。
+  function markHelpPageNumbers(element) {
+    if (element.__figmaHelpPageMarked) return;
+    element.__figmaHelpPageMarked = true;
+    var numbers = Array.prototype.slice.call(element.querySelectorAll("*")).filter(function (node) {
+      return node.children.length === 0 && /^\\d+$/.test((node.textContent || "").trim());
+    });
+    if (numbers.length < 2) return;
+    numbers[0].setAttribute("data-help-page-role", "current");
+    numbers[numbers.length - 1].setAttribute("data-help-page-role", "total");
+  }
+
+  function writeHelpPageNumbers(element, state) {
+    Array.prototype.slice.call(element.querySelectorAll("[data-help-page-role]")).forEach(function (node) {
+      node.textContent = node.getAttribute("data-help-page-role") === "total" ? state.totalText : state.currentText;
+    });
+  }
+
+  function syncHelpPage(root, swiper, force) {
+    var state = getHelpPageState(swiper);
+    var previous = root.__figmaHelpPage;
+    var changed = !previous || previous.current !== state.current || previous.total !== state.total;
+    root.__figmaHelpPage = state;
+
+    Array.prototype.slice.call(root.querySelectorAll(HELP_PAGE_SELECTOR)).forEach(function (element) {
+      element.setAttribute("data-help-page-current", String(state.current));
+      element.setAttribute("data-help-page-total", String(state.total));
+      markHelpPageNumbers(element);
+      writeHelpPageNumbers(element, state);
+      if (changed || force) {
+        element.dispatchEvent(new CustomEvent("figma:help-page", { bubbles: true, detail: state }));
+      }
+    });
+
+    return state;
+  }
+
+  function getHelpPageSwiperRoot() {
+    return Array.prototype.slice.call(document.querySelectorAll("[data-fig-swiper-ready]")).find(function (root) {
+      return root.__figmaSwiper && root.querySelector(HELP_PAGE_SELECTOR);
+    }) || null;
+  }
+
+  window.figmaHelpPage = {
+    get: function () {
+      var root = getHelpPageSwiperRoot();
+      return root ? getHelpPageState(root.__figmaSwiper) : null;
+    },
+    refresh: function () {
+      var root = getHelpPageSwiperRoot();
+      if (!root) return null;
+      root.__figmaSwiper.update();
+      return syncHelpPage(root, root.__figmaSwiper, true);
+    }
+  };
+
   function initFigmaSwiperCarousel(root, SwiperConstructor) {
     if (!root) {
       return;
@@ -969,7 +1043,8 @@ function initializeFigmaInteractions(model) {
 
         var sourcePagination = activeSlideRoot.querySelector("[data-fig-carousel-pagination]");
         var targetPagination = root.querySelector("[data-fig-carousel-pagination]");
-        if (sourcePagination && targetPagination) {
+        // _HELP_PAGE 的內容由宿主替換，不能用 Figma 原稿覆蓋回去
+        if (sourcePagination && targetPagination && !targetPagination.matches(HELP_PAGE_SELECTOR)) {
           targetPagination.innerHTML = sourcePagination.innerHTML;
           targetPagination.setAttribute("data-fig-id", sourcePagination.getAttribute("data-fig-id") || "");
           targetPagination.setAttribute("data-fig-carousel", sourcePagination.getAttribute("data-fig-carousel") || "");
@@ -987,6 +1062,8 @@ function initializeFigmaInteractions(model) {
         control.style.pointerEvents = disabled ? "none" : "auto";
         control.style.cursor = disabled ? "default" : "pointer";
       });
+
+      syncHelpPage(root, swiper);
     }
 
     getCarouselControls(root).forEach(function (control) {
@@ -1006,6 +1083,11 @@ function initializeFigmaInteractions(model) {
     });
 
     swiper.on("slideChange", function () {
+      syncSwiperCarouselState();
+    });
+
+    // 宿主增刪頁面（removeSlide / appendSlide / update）後重算總頁數
+    swiper.on("slidesUpdated slidesLengthChange", function () {
       syncSwiperCarouselState();
     });
 
