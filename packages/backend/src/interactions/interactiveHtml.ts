@@ -4,7 +4,12 @@ import {
   collectCarouselAttributes,
   collectInteractionModel,
 } from "./interactionModel";
-import { renderHelpPageColorCSS } from "./helpPageColors";
+import {
+  hasHelpPage,
+  loadHelpPageVariables,
+  renderHelpPageColorCSS,
+  renderHelpPageVariableCSS,
+} from "./helpPageColors";
 import {
   interactionRuntimeCSS,
   renderInteractionScripts,
@@ -30,6 +35,11 @@ export const interactiveHtmlMain = async (
     interactiveSettings,
   );
 
+  const allNodes = [...sceneNode, ...templateNodes];
+  const helpPageVariableCSS = hasHelpPage(allNodes)
+    ? renderHelpPageVariableCSS(await loadHelpPageVariables())
+    : "";
+
   return {
     html: `${output.html}
 ${templateHtml}
@@ -37,7 +47,8 @@ ${renderInteractionScripts(model)}`,
     css: [
       output.css,
       interactionRuntimeCSS,
-      renderHelpPageColorCSS([...sceneNode, ...templateNodes]),
+      helpPageVariableCSS,
+      renderHelpPageColorCSS(allNodes),
     ]
       .filter(Boolean)
       .join("\n\n"),

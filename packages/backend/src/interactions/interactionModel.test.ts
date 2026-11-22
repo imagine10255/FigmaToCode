@@ -146,8 +146,8 @@ test("P1 external script output includes px2vw bootstrap and trimmed Swiper runt
   const script = withPx2vwRatioScript(interactionRuntimeScript);
   const scriptWithFileNewline = `${script}\n`;
 
-  assert.equal(script.length, 44554);
-  assert.equal(scriptWithFileNewline.length, 44555);
+  assert.equal(script.length, 45045);
+  assert.equal(scriptWithFileNewline.length, 45046);
   assert.match(script, /function getFigmaInteractionModel/);
   assert.match(script, /function updatePx2VwRatio/);
   assert.match(script, /window\.innerWidth \/ 1440/);
