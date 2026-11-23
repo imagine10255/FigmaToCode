@@ -59,11 +59,13 @@ export const interactionRuntimeCSS = `
   --_face-bottom: var(--pager-face-bottom, #e4d8ff);
   --_edge: var(--pager-edge, #4a1fb8);
   --_side: var(--pager-side, #2f1080);
+  /* 陰影（厚度）大小倍率 */
+  --_depth: var(--pager-depth, 1.25);
   display: inline-flex;
   align-items: center;
-  font-family: var(--pager-font-family, "Russo One", "Arial Black", sans-serif);
+  font-family: var(--pager-font-family, "Roboto", "Arial Black", sans-serif);
   font-size: var(--pager-font-size, 20px);
-  font-weight: normal;
+  font-weight: var(--pager-font-weight, 900);
   line-height: 1;
   flex-shrink: 0;
   white-space: pre;
@@ -78,11 +80,11 @@ export const interactionRuntimeCSS = `
   color: var(--_edge);
   -webkit-text-stroke: .0625em var(--_edge);
   text-shadow:
-    0 .016em 0 var(--_edge),
-    0 .031em 0 var(--_edge),
-    0 .047em 0 var(--_edge),
-    0 .0625em 0 var(--_side),
-    .016em .078em 0 var(--_side);
+    0 calc(.016em * var(--_depth)) 0 var(--_edge),
+    0 calc(.031em * var(--_depth)) 0 var(--_edge),
+    0 calc(.047em * var(--_depth)) 0 var(--_edge),
+    0 calc(.0625em * var(--_depth)) 0 var(--_side),
+    calc(.016em * var(--_depth)) calc(.078em * var(--_depth)) 0 var(--_side);
 }
 
 .fig-help-pager__num::after {
@@ -96,19 +98,6 @@ export const interactionRuntimeCSS = `
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-}
-
-/* 斜線不用字型的 / （太細），畫成平行四邊形，粗細由 --pager-slash-width 調整 */
-.fig-help-pager__slash {
-  width: var(--pager-slash-width, .16em);
-  height: .74em;
-  margin: 0 .2em 0 .28em;
-  transform: skewX(-22deg);
-  background: linear-gradient(180deg, var(--_face-top) 55%, var(--_face-bottom) 100%);
-  box-shadow:
-    0 0 0 .0625em var(--_edge),
-    0 .047em 0 .0625em var(--_edge),
-    .016em .078em 0 .0625em var(--_side);
 }
 `.trim();
 
@@ -927,7 +916,7 @@ function initializeFigmaInteractions(model) {
       var pager = document.createElement("span");
       pager.className = "fig-help-pager";
       pager.innerHTML = '<span class="fig-help-pager__num" data-help-page-role="current"></span>' +
-        '<span class="fig-help-pager__slash" aria-label="/"></span>' +
+        '<span class="fig-help-pager__num fig-help-pager__slash" data-text="/">/</span>' +
         '<span class="fig-help-pager__num" data-help-page-role="total"></span>';
       element.innerHTML = "";
       element.appendChild(pager);

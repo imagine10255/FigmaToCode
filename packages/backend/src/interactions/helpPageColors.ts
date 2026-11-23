@@ -17,7 +17,8 @@ export type HelpPageColorVars = Partial<
     | "--pager-edge"
     | "--pager-side"
     | "--pager-font-size"
-    | "--pager-font-family",
+    | "--pager-font-family"
+    | "--pager-font-weight",
     string
   >
 >;
@@ -75,6 +76,13 @@ const toFontStack = (family: unknown) => {
   return `"${value.replace(/"/g, "")}", "Arial Black", sans-serif`;
 };
 
+// 字重：100～1000 的數字，或 CSS 關鍵字
+const toFontWeight = (weight: unknown) => {
+  const value = String(weight ?? "").trim().toLowerCase();
+  if (/^\d{1,4}$/.test(value) && +value >= 1 && +value <= 1000) return value;
+  return ["normal", "bold", "bolder", "lighter"].includes(value) ? value : undefined;
+};
+
 export const collectHelpPageColorVars = (helpPage: any): HelpPageColorVars => {
   const text = findFirstText(helpPage);
   const source = text ?? (isHollowHelpPage(helpPage) ? helpPage : null);
@@ -129,6 +137,11 @@ export const collectHelpPageColorVars = (helpPage: any): HelpPageColorVars => {
     text?.styledTextSegments?.[0]?.fontName?.family ?? text?.fontName?.family,
   );
   if (family) vars["--pager-font-family"] = family;
+
+  const weight = toFontWeight(
+    text?.styledTextSegments?.[0]?.fontWeight ?? text?.fontWeight,
+  );
+  if (weight) vars["--pager-font-weight"] = weight;
 
   // Figma 變數取名跟 --pager-* 同名時（例如 pager/edge），會寫出
   // --pager-edge: var(--pager-edge, ...) 自我參照，CSS 會整條作廢，只留預設值。改用色碼本身。
@@ -200,7 +213,8 @@ export const hasHelpPage = (nodes: ReadonlyArray<any>) =>
 
 /**
  * Figma 檔案裡的本地變數。只認 help 群組底下這些名稱，
- * 不用綁在任何圖層上，匯出時直接讀。顏色用 Color 變數，字型用 String 變數。
+ * 不用綁在任何圖層上，匯出時直接讀。顏色用 Color 變數，字型用 String 變數，
+ * 字重用 Number（例如 900）或 String 變數。
  */
 const HELP_PAGE_VARIABLE_TARGETS: Record<string, keyof HelpPageColorVars> = {
   "help/face-top": "--pager-face-top",
@@ -208,6 +222,14 @@ const HELP_PAGE_VARIABLE_TARGETS: Record<string, keyof HelpPageColorVars> = {
   "help/edge": "--pager-edge",
   "help/side": "--pager-side",
   "help/font-family": "--pager-font-family",
+  "help/font-weight": "--pager-font-weight",
+};
+
+const TEXT_FORMATTERS: Partial<
+  Record<keyof HelpPageColorVars, (value: string) => string | undefined>
+> = {
+  "--pager-font-family": toFontStack,
+  "--pager-font-weight": toFontWeight,
 };
 
 type Rgba = { r: number; g: number; b: number; a?: number };
@@ -233,15 +255,13 @@ export const renderHelpPageVariableCSS = (
     .map((variable) => {
       const target = findTarget(variable.name);
       if (!target) return "";
-      const isFont = target === "--pager-font-family";
+      const format = TEXT_FORMATTERS[target];
       const fallback =
         "color" in variable
-          ? isFont
+          ? format
             ? undefined
             : htmlColor(variable.color as RGB, variable.color.a ?? 1)
-          : isFont
-            ? toFontStack(variable.text)
-            : undefined;
+          : format?.(variable.text);
       if (!fallback) return "";
       return `  ${target}: var(--${toCssVariableName(variable.name)}, ${fallback});`;
     })
@@ -282,6 +302,8 @@ export const loadHelpPageVariables = async (): Promise<HelpPageVariable[]> => {
     if (isColorValue(value)) found.push({ name: variable.name, color: value });
     else if (typeof value === "string" && value.trim()) {
       found.push({ name: variable.name, text: value });
+    } else if (typeof value === "number") {
+      found.push({ name: variable.name, text: String(value) });
     }
   }
   return found;

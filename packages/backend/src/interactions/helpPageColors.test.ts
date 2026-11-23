@@ -181,10 +181,10 @@ test("runtime swaps image page numbers for system text styled by --pager-* vars"
   assert.match(interactionRuntimeCSS, /content: attr\(data-text\)/);
 });
 
-test("runtime draws the pager slash as a shape whose thickness is a CSS var", () => {
-  assert.match(interactionRuntimeScript, /fig-help-pager__slash/);
-  assert.match(interactionRuntimeCSS, /\.fig-help-pager__slash \{/);
-  assert.match(interactionRuntimeCSS, /width: var\(--pager-slash-width, \.16em\)/);
+test("runtime renders the pager slash exactly like the digits", () => {
+  assert.match(interactionRuntimeScript, /fig-help-pager__num fig-help-pager__slash" data-text="\/">\/</);
+  // 斜線沒有自己的樣式，跟數字共用 .fig-help-pager__num
+  assert.doesNotMatch(interactionRuntimeCSS, /\.fig-help-pager__slash/);
 });
 
 test("a single styled text layer drives every --pager-* var including the font", () => {
@@ -275,6 +275,7 @@ test("loads help/* variables from Figma, resolving aliases in the default mode",
     edge: { id: "edge", name: "help/edge", variableCollectionId: "c1", valuesByMode: { m1: { type: "VARIABLE_ALIAS", id: "base" } } },
     top: { id: "top", name: "help/face-top", variableCollectionId: "c1", valuesByMode: { m1: rgb(1, 1, 1) } },
     font: { id: "font", name: "help/font-family", variableCollectionId: "c1", valuesByMode: { m1: "Russo One" } },
+    weight: { id: "weight", name: "help/font-weight", variableCollectionId: "c1", valuesByMode: { m1: 900 } },
   };
   (globalThis as any).figma = {
     variables: {
@@ -287,7 +288,7 @@ test("loads help/* variables from Figma, resolving aliases in the default mode",
     const found = await loadHelpPageVariables();
     assert.deepEqual(
       found.map((v) => [v.name, "color" in v ? v.color : v.text]).sort(),
-      [["help/edge", rgb(0, 1, 0)], ["help/face-top", rgb(1, 1, 1)], ["help/font-family", "Russo One"]],
+      [["help/edge", rgb(0, 1, 0)], ["help/face-top", rgb(1, 1, 1)], ["help/font-family", "Russo One"], ["help/font-weight", "900"]],
     );
   } finally {
     delete (globalThis as any).figma;
@@ -308,4 +309,38 @@ test("help/font-family string variable sets the pager font, keeping a full stack
   );
   // 顏色變數取了字型的名字不輸出
   assert.equal(renderHelpPageVariableCSS([{ name: "help/font-family", color: rgb(1, 1, 1) }]), "");
+});
+
+test("help/font-weight sets the pager weight from a number or keyword, ignoring junk", () => {
+  assert.match(
+    renderHelpPageVariableCSS([{ name: "help/font-weight", text: "900" }]),
+    /--pager-font-weight: var\(--help-font-weight, 900\);/,
+  );
+  assert.match(
+    renderHelpPageVariableCSS([{ name: "help/font-weight", text: "Bold" }]),
+    /--pager-font-weight: var\(--help-font-weight, bold\);/,
+  );
+  assert.equal(renderHelpPageVariableCSS([{ name: "help/font-weight", text: "heavy" }]), "");
+  assert.match(interactionRuntimeCSS, /font-weight: var\(--pager-font-weight, 900\);/);
+});
+
+test("a text layer's font weight drives --pager-font-weight", () => {
+  const vars = collectHelpPageColorVars(
+    createHelpPage({
+      id: "12:36",
+      name: "01 / 04",
+      type: "TEXT",
+      styledTextSegments: [{ fontName: { family: "Roboto", style: "Black" }, fontWeight: 900 }],
+      fills: [],
+      strokes: [],
+      effects: [],
+    }),
+  );
+  assert.equal(vars["--pager-font-weight"], "900");
+});
+
+test("pager defaults: Roboto 900 with a 1.25x depth multiplier on the side shadow", () => {
+  assert.match(interactionRuntimeCSS, /var\(--pager-font-family, "Roboto", "Arial Black", sans-serif\)/);
+  assert.match(interactionRuntimeCSS, /--_depth: var\(--pager-depth, 1\.25\);/);
+  assert.match(interactionRuntimeCSS, /calc\(\.0625em \* var\(--_depth\)\) 0 var\(--_side\)/);
 });
