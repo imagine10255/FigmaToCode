@@ -59,18 +59,22 @@ export const interactionRuntimeCSS = `
   --_face-bottom: var(--pager-face-bottom, #e4d8ff);
   --_edge: var(--pager-edge, #4a1fb8);
   --_side: var(--pager-side, #2f1080);
-  position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   font-family: var(--pager-font-family, "Russo One", "Arial Black", sans-serif);
   font-size: var(--pager-font-size, 20px);
   font-weight: normal;
   line-height: 1;
-  letter-spacing: .12em;
-  /* 補回最後一個字後面多出的字距，讓文字視覺置中（::after 會繼承，兩層對齊） */
-  text-indent: .12em;
   flex-shrink: 0;
   white-space: pre;
   transform: skewX(-8deg);
+}
+
+.fig-help-pager__num {
+  position: relative;
+  letter-spacing: .12em;
+  /* 補回最後一個字後面多出的字距，讓文字視覺置中（::after 會繼承，兩層對齊） */
+  text-indent: .12em;
   color: var(--_edge);
   -webkit-text-stroke: .0625em var(--_edge);
   text-shadow:
@@ -81,7 +85,7 @@ export const interactionRuntimeCSS = `
     .016em .078em 0 var(--_side);
 }
 
-.fig-help-pager::after {
+.fig-help-pager__num::after {
   content: attr(data-text);
   position: absolute;
   top: 0;
@@ -92,6 +96,19 @@ export const interactionRuntimeCSS = `
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* 斜線不用字型的 / （太細），畫成平行四邊形，粗細由 --pager-slash-width 調整 */
+.fig-help-pager__slash {
+  width: var(--pager-slash-width, .16em);
+  height: .74em;
+  margin: 0 .2em 0 .28em;
+  transform: skewX(-22deg);
+  background: linear-gradient(180deg, var(--_face-top) 55%, var(--_face-bottom) 100%);
+  box-shadow:
+    0 0 0 .0625em var(--_edge),
+    0 .047em 0 .0625em var(--_edge),
+    .016em .078em 0 .0625em var(--_side);
 }
 `.trim();
 
@@ -909,7 +926,9 @@ function initializeFigmaInteractions(model) {
       // 頁碼是圖片（沒有數字文字可改寫）：換成系統字，字效與顏色由 .fig-help-pager 的 --pager-* 決定
       var pager = document.createElement("span");
       pager.className = "fig-help-pager";
-      pager.setAttribute("data-help-page-role", "text");
+      pager.innerHTML = '<span class="fig-help-pager__num" data-help-page-role="current"></span>' +
+        '<span class="fig-help-pager__slash" aria-label="/"></span>' +
+        '<span class="fig-help-pager__num" data-help-page-role="total"></span>';
       element.innerHTML = "";
       element.appendChild(pager);
       return;
@@ -921,11 +940,12 @@ function initializeFigmaInteractions(model) {
   function writeHelpPageNumbers(element, state) {
     Array.prototype.slice.call(element.querySelectorAll("[data-help-page-role]")).forEach(function (node) {
       var role = node.getAttribute("data-help-page-role");
-      var text = role === "total" ? state.totalText
-        : role === "current" ? state.currentText
-        : state.currentText + " / " + state.totalText;
+      var text = role === "total" ? state.totalText : state.currentText;
       node.textContent = text;
-      if (role === "text") node.setAttribute("data-text", text);
+      // 系統字的字面那層（::after）讀 data-text
+      if (node.className === "fig-help-pager__num") {
+        node.setAttribute("data-text", text);
+      }
     });
   }
 

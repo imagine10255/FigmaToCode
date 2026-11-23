@@ -67,6 +67,14 @@ const toScaledPx = (value: unknown) =>
 export const isHollowHelpPage = (helpPage: any) =>
   !(helpPage?.children ?? []).some(isVisible);
 
+// 字型名稱 → CSS 字型堆疊。已經是堆疊（含逗號）就原樣使用
+const toFontStack = (family: unknown) => {
+  if (typeof family !== "string" || !family.trim()) return undefined;
+  const value = family.trim();
+  if (value.includes(",")) return value;
+  return `"${value.replace(/"/g, "")}", "Arial Black", sans-serif`;
+};
+
 export const collectHelpPageColorVars = (helpPage: any): HelpPageColorVars => {
   const text = findFirstText(helpPage);
   const source = text ?? (isHollowHelpPage(helpPage) ? helpPage : null);
@@ -117,12 +125,10 @@ export const collectHelpPageColorVars = (helpPage: any): HelpPageColorVars => {
   const fontSize = toScaledPx(text ? text.fontSize : helpPage.height);
   if (fontSize) vars["--pager-font-size"] = fontSize;
 
-  const family =
-    text?.styledTextSegments?.[0]?.fontName?.family ?? text?.fontName?.family;
-  if (typeof family === "string" && family.trim()) {
-    vars["--pager-font-family"] =
-      `"${family.trim().replace(/"/g, "")}", "Arial Black", sans-serif`;
-  }
+  const family = toFontStack(
+    text?.styledTextSegments?.[0]?.fontName?.family ?? text?.fontName?.family,
+  );
+  if (family) vars["--pager-font-family"] = family;
 
   // Figma 變數取名跟 --pager-* 同名時（例如 pager/edge），會寫出
   // --pager-edge: var(--pager-edge, ...) 自我參照，CSS 會整條作廢，只留預設值。改用色碼本身。
@@ -193,36 +199,50 @@ export const hasHelpPage = (nodes: ReadonlyArray<any>) =>
   findHelpPages(nodes).length > 0;
 
 /**
- * Figma 檔案裡的本地顏色變數。只認 help 群組底下這四個名稱，
- * 不用綁在任何圖層上，匯出時直接讀。
+ * Figma 檔案裡的本地變數。只認 help 群組底下這些名稱，
+ * 不用綁在任何圖層上，匯出時直接讀。顏色用 Color 變數，字型用 String 變數。
  */
 const HELP_PAGE_VARIABLE_TARGETS: Record<string, keyof HelpPageColorVars> = {
   "help/face-top": "--pager-face-top",
   "help/face-bottom": "--pager-face-bottom",
   "help/edge": "--pager-edge",
   "help/side": "--pager-side",
+  "help/font-family": "--pager-font-family",
 };
 
-export type HelpPageVariable = {
-  name: string;
-  color: { r: number; g: number; b: number; a?: number };
-};
+type Rgba = { r: number; g: number; b: number; a?: number };
+
+export type HelpPageVariable =
+  | { name: string; color: Rgba }
+  | { name: string; text: string };
 
 const toCssVariableName = (name: string) =>
   name.trim().replaceAll("/", "-").replaceAll(" ", "-").replaceAll(",", "");
 
+const findTarget = (name: unknown) =>
+  HELP_PAGE_VARIABLE_TARGETS[String(name).trim().toLowerCase()];
+
 /**
- * 所有 _HELP_PAGE 共用的一條規則。寫成 var(--help-xxx, 色碼)，宿主一樣可以在外層換色。
- * 放在各 _HELP_PAGE 自己的規則（圖層上有綁變數或設顏色）前面，那邊的設定優先。
+ * 所有 _HELP_PAGE 共用的一條規則。寫成 var(--help-xxx, 值)，宿主一樣可以在外層換掉。
+ * 放在各 _HELP_PAGE 自己的規則（圖層上有綁變數或設樣式）前面，那邊的設定優先。
  */
 export const renderHelpPageVariableCSS = (
   variables: ReadonlyArray<HelpPageVariable>,
 ): string => {
   const declarations = variables
     .map((variable) => {
-      const target = HELP_PAGE_VARIABLE_TARGETS[variable.name.trim().toLowerCase()];
+      const target = findTarget(variable.name);
       if (!target) return "";
-      const fallback = htmlColor(variable.color as RGB, variable.color.a ?? 1);
+      const isFont = target === "--pager-font-family";
+      const fallback =
+        "color" in variable
+          ? isFont
+            ? undefined
+            : htmlColor(variable.color as RGB, variable.color.a ?? 1)
+          : isFont
+            ? toFontStack(variable.text)
+            : undefined;
+      if (!fallback) return "";
       return `  ${target}: var(--${toCssVariableName(variable.name)}, ${fallback});`;
     })
     .filter(Boolean);
@@ -231,9 +251,11 @@ export const renderHelpPageVariableCSS = (
 };
 
 const isAlias = (value: any) => value && value.type === "VARIABLE_ALIAS";
+const isColorValue = (value: any) =>
+  value && typeof value === "object" && "r" in value;
 
 /**
- * 從 Figma 讀出 help/* 本地顏色變數（預設模式的值，別名會往下解）。
+ * 從 Figma 讀出 help/* 本地變數（預設模式的值，別名會往下解）。
  * 不在 Figma 環境（例如測試）時回傳空陣列。
  */
 export const loadHelpPageVariables = async (): Promise<HelpPageVariable[]> => {
@@ -249,17 +271,18 @@ export const loadHelpPageVariables = async (): Promise<HelpPageVariable[]> => {
     if (isAlias(value)) {
       return resolve(await api.getVariableByIdAsync(value.id), depth + 1);
     }
-    return value && typeof value === "object" && "r" in value ? value : null;
+    return value ?? null;
   };
 
-  const variables: any[] = await api.getLocalVariablesAsync("COLOR");
+  const variables: any[] = await api.getLocalVariablesAsync();
   const found: HelpPageVariable[] = [];
   for (const variable of variables) {
-    if (!HELP_PAGE_VARIABLE_TARGETS[String(variable.name).trim().toLowerCase()]) {
-      continue;
+    if (!findTarget(variable.name)) continue;
+    const value = await resolve(variable);
+    if (isColorValue(value)) found.push({ name: variable.name, color: value });
+    else if (typeof value === "string" && value.trim()) {
+      found.push({ name: variable.name, text: value });
     }
-    const color = await resolve(variable);
-    if (color) found.push({ name: variable.name, color });
   }
   return found;
 };

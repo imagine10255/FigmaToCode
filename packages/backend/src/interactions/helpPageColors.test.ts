@@ -172,12 +172,19 @@ test("image-only page numbers fall back to the frame height for the font size", 
 
 test("runtime swaps image page numbers for system text styled by --pager-* vars", () => {
   assert.match(interactionRuntimeScript, /fig-help-pager/);
-  assert.match(interactionRuntimeScript, /data-help-page-role", "text"/);
+  assert.match(interactionRuntimeScript, /fig-help-pager__num" data-help-page-role="current"/);
+  assert.match(interactionRuntimeScript, /fig-help-pager__num" data-help-page-role="total"/);
   assert.match(interactionRuntimeCSS, /\.fig-help-pager \{/);
   assert.match(interactionRuntimeCSS, /var\(--pager-edge, #4a1fb8\)/);
   assert.match(interactionRuntimeCSS, /var\(--pager-font-size, 20px\)/);
-  assert.match(interactionRuntimeCSS, /\.fig-help-pager::after \{/);
+  assert.match(interactionRuntimeCSS, /\.fig-help-pager__num::after \{/);
   assert.match(interactionRuntimeCSS, /content: attr\(data-text\)/);
+});
+
+test("runtime draws the pager slash as a shape whose thickness is a CSS var", () => {
+  assert.match(interactionRuntimeScript, /fig-help-pager__slash/);
+  assert.match(interactionRuntimeCSS, /\.fig-help-pager__slash \{/);
+  assert.match(interactionRuntimeCSS, /width: var\(--pager-slash-width, \.16em\)/);
 });
 
 test("a single styled text layer drives every --pager-* var including the font", () => {
@@ -267,6 +274,7 @@ test("loads help/* variables from Figma, resolving aliases in the default mode",
     base: { id: "base", name: "brand/green", variableCollectionId: "c1", valuesByMode: { m1: rgb(0, 1, 0) } },
     edge: { id: "edge", name: "help/edge", variableCollectionId: "c1", valuesByMode: { m1: { type: "VARIABLE_ALIAS", id: "base" } } },
     top: { id: "top", name: "help/face-top", variableCollectionId: "c1", valuesByMode: { m1: rgb(1, 1, 1) } },
+    font: { id: "font", name: "help/font-family", variableCollectionId: "c1", valuesByMode: { m1: "Russo One" } },
   };
   (globalThis as any).figma = {
     variables: {
@@ -278,10 +286,26 @@ test("loads help/* variables from Figma, resolving aliases in the default mode",
   try {
     const found = await loadHelpPageVariables();
     assert.deepEqual(
-      found.map((v) => [v.name, v.color]).sort(),
-      [["help/edge", rgb(0, 1, 0)], ["help/face-top", rgb(1, 1, 1)]],
+      found.map((v) => [v.name, "color" in v ? v.color : v.text]).sort(),
+      [["help/edge", rgb(0, 1, 0)], ["help/face-top", rgb(1, 1, 1)], ["help/font-family", "Russo One"]],
     );
   } finally {
     delete (globalThis as any).figma;
   }
+});
+
+test("help/font-family string variable sets the pager font, keeping a full stack as is", () => {
+  const css = renderHelpPageVariableCSS([
+    { name: "help/font-family", text: "Russo One" },
+  ]);
+  assert.match(
+    css,
+    /--pager-font-family: var\(--help-font-family, "Russo One", "Arial Black", sans-serif\);/,
+  );
+  assert.match(
+    renderHelpPageVariableCSS([{ name: "help/font-family", text: "Impact, sans-serif" }]),
+    /--pager-font-family: var\(--help-font-family, Impact, sans-serif\);/,
+  );
+  // 顏色變數取了字型的名字不輸出
+  assert.equal(renderHelpPageVariableCSS([{ name: "help/font-family", color: rgb(1, 1, 1) }]), "");
 });
