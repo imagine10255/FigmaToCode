@@ -1299,10 +1299,12 @@ function initializeFigmaInteractions(model) {
   }
 
   function bindDelegatedNavigateReactions() {
-    if (document.__figmaDelegatedNavigateBound) return;
-    document.__figmaDelegatedNavigateBound = true;
+    // 宿主重新 mount（換一份 html / model）時換掉舊的監聽，避免沿用上一次的 model
+    if (document.__figmaDelegatedNavigateHandler) {
+      document.removeEventListener("click", document.__figmaDelegatedNavigateHandler, true);
+    }
 
-    document.addEventListener("click", function (event) {
+    document.__figmaDelegatedNavigateHandler = function (event) {
       if (!event.target || typeof event.target.closest !== "function") return;
 
       var current = event.target.closest("[data-fig-id]");
@@ -1332,7 +1334,8 @@ function initializeFigmaInteractions(model) {
 
         current = current.parentElement && typeof current.parentElement.closest === "function" ? current.parentElement.closest("[data-fig-id]") : null;
       }
-    }, true);
+    };
+    document.addEventListener("click", document.__figmaDelegatedNavigateHandler, true);
   }
 
   refreshPages();
@@ -1348,6 +1351,15 @@ function initializeFigmaInteractions(model) {
   }
   initFigmaSwiperCarousels();
 }
+
+// 宿主（例如 GameHelper）用的入口：宿主自己把 html 塞進頁面後呼叫 mount(model)。
+// 不傳 model 時讀頁面上的 #figma-interaction-model。
+// 這是與宿主的契約，變更前先看 docs/help-page-host-contract.md。
+window.figmaHelp = {
+  mount: function (model) {
+    initializeFigmaInteractions(model || getFigmaInteractionModel());
+  }
+};
 `.trim();
 
 export const px2vwRatioScript = `

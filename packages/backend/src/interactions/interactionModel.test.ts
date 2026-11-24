@@ -146,8 +146,8 @@ test("P1 external script output includes px2vw bootstrap and trimmed Swiper runt
   const script = withPx2vwRatioScript(interactionRuntimeScript);
   const scriptWithFileNewline = `${script}\n`;
 
-  assert.equal(script.length, 45258);
-  assert.equal(scriptWithFileNewline.length, 45259);
+  assert.equal(script.length, 45730);
+  assert.equal(scriptWithFileNewline.length, 45731);
   assert.match(script, /function getFigmaInteractionModel/);
   assert.match(script, /function updatePx2VwRatio/);
   assert.match(script, /window\.innerWidth \/ 1440/);
@@ -158,6 +158,10 @@ test("P1 external script output includes px2vw bootstrap and trimmed Swiper runt
     script,
     /initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);/,
   );
+  // 宿主入口：script.js 不自動執行，由宿主呼叫 figmaHelp.mount(model)
+  assert.match(script, /window\.figmaHelp = \{\n  mount: function \(model\)/);
+  assert.match(script, /document\.__figmaDelegatedNavigateHandler/);
+  assert.doesNotMatch(script, /__figmaDelegatedNavigateBound/);
   assert.doesNotMatch(script, /dragstart/);
   assert.doesNotMatch(script, /touchStartPreventDefault/);
   assert.doesNotMatch(script, /swiper\.updateSize\(\)/);
