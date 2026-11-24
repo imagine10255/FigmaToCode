@@ -87,6 +87,11 @@ export const interactionRuntimeCSS = `
     calc(.016em * var(--_depth)) calc(.078em * var(--_depth)) 0 var(--_side);
 }
 
+/*
+ * 字面漸層：::before 是底色（face-bottom），::after 是上色（face-top）並用 mask 往下淡出。
+ * 不用 background-clip（text 裁切）—— Chrome 在特定縮放尺寸下會整個不畫（拉一點又出現）。
+ */
+.fig-help-pager__num::before,
 .fig-help-pager__num::after {
   content: attr(data-text);
   position: absolute;
@@ -94,10 +99,16 @@ export const interactionRuntimeCSS = `
   left: 0;
   -webkit-text-stroke: 0;
   text-shadow: none;
-  background: linear-gradient(180deg, var(--_face-top) 55%, var(--_face-bottom) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+}
+
+.fig-help-pager__num::before {
+  color: var(--_face-bottom);
+}
+
+.fig-help-pager__num::after {
+  color: var(--_face-top);
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
 }
 `.trim();
 

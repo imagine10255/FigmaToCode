@@ -181,6 +181,12 @@ test("runtime swaps image page numbers for system text styled by --pager-* vars"
   assert.match(interactionRuntimeCSS, /content: attr\(data-text\)/);
 });
 
+test("pager face does not rely on background-clip: text (Chrome drops it at some zoom sizes)", () => {
+  assert.doesNotMatch(interactionRuntimeCSS, /background-clip:\s*text/);
+  assert.match(interactionRuntimeCSS, /\.fig-help-pager__num::before \{\n  color: var\(--_face-bottom\);/);
+  assert.match(interactionRuntimeCSS, /mask-image: linear-gradient\(180deg, #000 55%, transparent 100%\)/);
+});
+
 test("runtime renders the pager slash exactly like the digits", () => {
   assert.match(interactionRuntimeScript, /fig-help-pager__num fig-help-pager__slash" data-text="\/">\/</);
   // 斜線沒有自己的樣式，跟數字共用 .fig-help-pager__num

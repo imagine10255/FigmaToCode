@@ -10,7 +10,7 @@
 ## 本套件負責
 
 - 互動 runtime：翻頁、prototype reaction、swiper、頁碼（`_HELP_PAGE`，依實際 slide 數計算）
-- 匯出結構：每一頁是 `<template data-fig-template>`，slide 根節點的 `data-layer` 為 Figma 原稿圖層名稱
+- 匯出結構：每一頁是 `<template data-fig-template>`，節點的 `data-layer` 為 Figma 原稿圖層名稱（slide 根節點與內文節點都是）
 - 獨立 html 的啟動：head 的 inline init（含 px2vw）
 
 ## 提供給宿主的接口（契約）
@@ -20,13 +20,13 @@
 | 入口 | `window.figmaHelp.mount(model?)`；model 不傳時讀 `#figma-interaction-model` |
 | 自動執行 | 拆出的 `script.js` **不自動執行**（`apps/plugin/plugin-src/code.ts` 的 `deferImmediateScript` 會去掉 `runFigmaInteractionInit`），由獨立 html 的 inline init 或宿主的 `mount` 啟動 |
 | 重複 mount | 必須可以重複呼叫，不能沿用上一次的 model / 監聽 |
-| 刪頁 | 宿主會在注入前刪掉指定 `data-layer` 的 template；runtime 要能接受頁面缺號，頁碼依實際頁數 |
+| 刪頁 / 刪內文 | 宿主會在注入前刪掉指定 `data-layer` 的節點：是 slide 根節點就刪整個 template，在內文就只刪該節點；runtime 要能接受頁面缺號與內文缺少，頁碼依實際頁數 |
 | 外部依賴 | Swiper 由宿主全域提供（`window.Swiper`）；其他需要的 css / js 必須以相對路徑寫在 html `<head>`，宿主會照順序載入 |
 | px2vw | 只在獨立 html 的 inline init 執行；`mount` 不改 `--px2vw-ratio`（宿主用自己的縮放） |
 
 ## 宿主只做的事（不要期待宿主幫忙補）
 
-1. 依 closeList 刪掉整頁 template（例如 `extra_bet` → `_HELP_EXTRA_BET`）
+1. 依 closeList 刪掉對應 `data-layer` 的整頁 template 或內文節點（例如 `extra_bet` → `_HELP_EXTRA_BET`）
 2. 轉 `_assets/` 路徑、注入 body、載入 head 中相對路徑的 css / js
 3. 呼叫 `figmaHelp.mount(model)`
 4. 關閉鈕 `_HELP_CLOSE_MODAL` 通知外層、外層縮放置中
