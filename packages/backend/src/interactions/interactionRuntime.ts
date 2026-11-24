@@ -52,6 +52,64 @@ export const interactionRuntimeCSS = `
   width: 100%;
   transition-property: transform;
 }
+
+/* _HELP_PAGE 頁碼是圖片時，runtime 改放的系統字。顏色與字級由 --pager-* 帶入 */
+.fig-help-pager {
+  --_face-top: var(--pager-face-top, #fff);
+  --_face-bottom: var(--pager-face-bottom, #e4d8ff);
+  --_edge: var(--pager-edge, #4a1fb8);
+  --_side: var(--pager-side, #2f1080);
+  /* 陰影（厚度）大小倍率 */
+  --_depth: var(--pager-depth, 1.25);
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--pager-font-family, "Roboto", "Arial Black", sans-serif);
+  font-size: var(--pager-font-size, 20px);
+  font-weight: var(--pager-font-weight, 900);
+  line-height: 1;
+  flex-shrink: 0;
+  white-space: pre;
+  transform: skewX(-8deg);
+}
+
+.fig-help-pager__num {
+  position: relative;
+  letter-spacing: .12em;
+  /* 補回最後一個字後面多出的字距，讓文字視覺置中（::after 會繼承，兩層對齊） */
+  text-indent: .12em;
+  color: var(--_edge);
+  -webkit-text-stroke: .0625em var(--_edge);
+  text-shadow:
+    0 calc(.016em * var(--_depth)) 0 var(--_edge),
+    0 calc(.031em * var(--_depth)) 0 var(--_edge),
+    0 calc(.047em * var(--_depth)) 0 var(--_edge),
+    0 calc(.0625em * var(--_depth)) 0 var(--_side),
+    calc(.016em * var(--_depth)) calc(.078em * var(--_depth)) 0 var(--_side);
+}
+
+/*
+ * 字面漸層：::before 是底色（face-bottom），::after 是上色（face-top）並用 mask 往下淡出。
+ * 不用 background-clip（text 裁切）—— Chrome 在特定縮放尺寸下會整個不畫（拉一點又出現）。
+ */
+.fig-help-pager__num::before,
+.fig-help-pager__num::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+}
+
+.fig-help-pager__num::before {
+  color: var(--_face-bottom);
+}
+
+.fig-help-pager__num::after {
+  color: var(--_face-top);
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+}
 `.trim();
 
 export const interactionRuntimeScript = `
@@ -839,6 +897,115 @@ function initializeFigmaInteractions(model) {
     return clone;
   }
 
+  var HELP_PAGE_SELECTOR = '[data-layer="_HELP_PAGE"]';
+
+  function padHelpPageNumber(value) {
+    return value < 10 ? "0" + value : String(value);
+  }
+
+  function getHelpPageState(swiper) {
+    var total = swiper && swiper.slides ? swiper.slides.length : 0;
+    var current = total ? Math.min(Math.max(swiper.activeIndex || 0, 0), total - 1) + 1 : 0;
+    return {
+      current: current,
+      total: total,
+      currentText: padHelpPageNumber(current),
+      totalText: padHelpPageNumber(total)
+    };
+  }
+
+  // Figma 原稿的分頁（例如 01 / 14）：純數字的文字圖層，第一個是目前頁、最後一個是總頁數。
+  // 只在第一次標記；宿主替換掉 _HELP_PAGE 的內容後標記跟著消失，runtime 就不再改寫。
+  function markHelpPageNumbers(element) {
+    if (element.__figmaHelpPageMarked) return;
+    element.__figmaHelpPageMarked = true;
+    var numbers = Array.prototype.slice.call(element.querySelectorAll("*")).filter(function (node) {
+      return node.children.length === 0 && /^\\d+$/.test((node.textContent || "").trim());
+    });
+    if (numbers.length < 2) {
+      // 頁碼是圖片（沒有數字文字可改寫）：換成系統字，字效與顏色由 .fig-help-pager 的 --pager-* 決定
+      var pager = document.createElement("span");
+      pager.className = "fig-help-pager";
+      pager.innerHTML = '<span class="fig-help-pager__num" data-help-page-role="current"></span>' +
+        '<span class="fig-help-pager__num fig-help-pager__slash" data-text="/">/</span>' +
+        '<span class="fig-help-pager__num" data-help-page-role="total"></span>';
+      element.innerHTML = "";
+      element.appendChild(pager);
+      return;
+    }
+    numbers[0].setAttribute("data-help-page-role", "current");
+    numbers[numbers.length - 1].setAttribute("data-help-page-role", "total");
+  }
+
+  function writeHelpPageNumbers(element, state) {
+    Array.prototype.slice.call(element.querySelectorAll("[data-help-page-role]")).forEach(function (node) {
+      var role = node.getAttribute("data-help-page-role");
+      var text = role === "total" ? state.totalText : state.currentText;
+      node.textContent = text;
+      // 系統字的字面那層（::after）讀 data-text
+      if (node.className === "fig-help-pager__num") {
+        node.setAttribute("data-text", text);
+      }
+    });
+  }
+
+  function syncHelpPage(root, swiper, force) {
+    var state = getHelpPageState(swiper);
+    var previous = root.__figmaHelpPage;
+    var changed = !previous || previous.current !== state.current || previous.total !== state.total;
+    root.__figmaHelpPage = state;
+
+    Array.prototype.slice.call(root.querySelectorAll(HELP_PAGE_SELECTOR)).forEach(function (element) {
+      element.setAttribute("data-help-page-current", String(state.current));
+      element.setAttribute("data-help-page-total", String(state.total));
+      markHelpPageNumbers(element);
+      writeHelpPageNumbers(element, state);
+      if (changed || force) {
+        element.dispatchEvent(new CustomEvent("figma:help-page", { bubbles: true, detail: state }));
+      }
+    });
+
+    return state;
+  }
+
+  function getHelpPageSwiperRoot() {
+    return Array.prototype.slice.call(document.querySelectorAll("[data-fig-swiper-ready]")).find(function (root) {
+      return root.__figmaSwiper && root.querySelector(HELP_PAGE_SELECTOR);
+    }) || null;
+  }
+
+  window.figmaHelpPage = {
+    get: function () {
+      var root = getHelpPageSwiperRoot();
+      return root ? getHelpPageState(root.__figmaSwiper) : null;
+    },
+    refresh: function () {
+      var root = getHelpPageSwiperRoot();
+      if (!root) return null;
+      root.__figmaSwiper.update();
+      return syncHelpPage(root, root.__figmaSwiper, true);
+    }
+  };
+
+  // swiper-slide 的 data-layer 取 Figma 原稿名稱，供宿主依名稱挑選 / 刪除頁面。
+  // variant 名稱（Property 1=a8）只取值（a8）；多個屬性以 ", " 串接。
+  function getSlideLayerName(slideRootId, slideRoot) {
+    var node = nodeById.get(slideRootId);
+    // instance（例如畫面上的第一頁）改用主元件名稱，與其他頁的 variant 名稱一致
+    var component = node && node.type === "INSTANCE" && node.componentId ? nodeById.get(node.componentId) : null;
+    var name = ((component && component.name) || (node && node.name) || slideRoot.getAttribute("data-layer") || "").trim();
+    var parts = name.split(",").map(function (part) {
+      return part.trim();
+    });
+    var isVariant = parts.every(function (part) {
+      return /^[^=]+=.+$/.test(part);
+    });
+    if (!name || !isVariant) return name;
+    return parts.map(function (part) {
+      return part.slice(part.indexOf("=") + 1).trim();
+    }).join(", ");
+  }
+
   function initFigmaSwiperCarousel(root, SwiperConstructor) {
     if (!root) {
       return;
@@ -912,6 +1079,10 @@ function initializeFigmaInteractions(model) {
       var slide = document.createElement("div");
       slide.className = "swiper-slide";
       slide.setAttribute("data-fig-swiper-slide-id", slideRootId);
+      var slideLayerName = getSlideLayerName(slideRootId, slideRoot);
+      if (slideLayerName) {
+        slide.setAttribute("data-layer", slideLayerName);
+      }
       slide.style.display = "block";
       slide.style.overflow = "hidden";
       slide.style.position = "relative";
@@ -969,7 +1140,8 @@ function initializeFigmaInteractions(model) {
 
         var sourcePagination = activeSlideRoot.querySelector("[data-fig-carousel-pagination]");
         var targetPagination = root.querySelector("[data-fig-carousel-pagination]");
-        if (sourcePagination && targetPagination) {
+        // _HELP_PAGE 的內容由宿主替換，不能用 Figma 原稿覆蓋回去
+        if (sourcePagination && targetPagination && !targetPagination.matches(HELP_PAGE_SELECTOR)) {
           targetPagination.innerHTML = sourcePagination.innerHTML;
           targetPagination.setAttribute("data-fig-id", sourcePagination.getAttribute("data-fig-id") || "");
           targetPagination.setAttribute("data-fig-carousel", sourcePagination.getAttribute("data-fig-carousel") || "");
@@ -987,6 +1159,8 @@ function initializeFigmaInteractions(model) {
         control.style.pointerEvents = disabled ? "none" : "auto";
         control.style.cursor = disabled ? "default" : "pointer";
       });
+
+      syncHelpPage(root, swiper);
     }
 
     getCarouselControls(root).forEach(function (control) {
@@ -1006,6 +1180,11 @@ function initializeFigmaInteractions(model) {
     });
 
     swiper.on("slideChange", function () {
+      syncSwiperCarouselState();
+    });
+
+    // 宿主增刪頁面（removeSlide / appendSlide / update）後重算總頁數
+    swiper.on("slidesUpdated slidesLengthChange", function () {
       syncSwiperCarouselState();
     });
 
@@ -1131,10 +1310,12 @@ function initializeFigmaInteractions(model) {
   }
 
   function bindDelegatedNavigateReactions() {
-    if (document.__figmaDelegatedNavigateBound) return;
-    document.__figmaDelegatedNavigateBound = true;
+    // 宿主重新 mount（換一份 html / model）時換掉舊的監聽，避免沿用上一次的 model
+    if (document.__figmaDelegatedNavigateHandler) {
+      document.removeEventListener("click", document.__figmaDelegatedNavigateHandler, true);
+    }
 
-    document.addEventListener("click", function (event) {
+    document.__figmaDelegatedNavigateHandler = function (event) {
       if (!event.target || typeof event.target.closest !== "function") return;
 
       var current = event.target.closest("[data-fig-id]");
@@ -1164,7 +1345,8 @@ function initializeFigmaInteractions(model) {
 
         current = current.parentElement && typeof current.parentElement.closest === "function" ? current.parentElement.closest("[data-fig-id]") : null;
       }
-    }, true);
+    };
+    document.addEventListener("click", document.__figmaDelegatedNavigateHandler, true);
   }
 
   refreshPages();
@@ -1180,6 +1362,15 @@ function initializeFigmaInteractions(model) {
   }
   initFigmaSwiperCarousels();
 }
+
+// 宿主（例如 GameHelper）用的入口：宿主自己把 html 塞進頁面後呼叫 mount(model)。
+// 不傳 model 時讀頁面上的 #figma-interaction-model。
+// 這是與宿主的契約，變更前先看 docs/help-page-host-contract.md。
+window.figmaHelp = {
+  mount: function (model) {
+    initializeFigmaInteractions(model || getFigmaInteractionModel());
+  }
+};
 `.trim();
 
 export const px2vwRatioScript = `

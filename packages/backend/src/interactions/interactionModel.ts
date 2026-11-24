@@ -98,6 +98,9 @@ const toInteractionNode = (
   height: typeof node.height === "number" ? node.height : undefined,
   x: typeof node.x === "number" ? node.x : undefined,
   y: typeof node.y === "number" ? node.y : undefined,
+  ...(node.type === "INSTANCE" && typeof node.componentId === "string"
+    ? { componentId: node.componentId }
+    : {}),
 });
 
 export const collectInteractionModel = (

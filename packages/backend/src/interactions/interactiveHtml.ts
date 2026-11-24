@@ -5,6 +5,12 @@ import {
   collectInteractionModel,
 } from "./interactionModel";
 import {
+  hasHelpPage,
+  loadHelpPageVariables,
+  renderHelpPageColorCSS,
+  renderHelpPageVariableCSS,
+} from "./helpPageColors";
+import {
   interactionRuntimeCSS,
   renderInteractionScripts,
 } from "./interactionRuntime";
@@ -29,11 +35,23 @@ export const interactiveHtmlMain = async (
     interactiveSettings,
   );
 
+  const allNodes = [...sceneNode, ...templateNodes];
+  const helpPageVariableCSS = hasHelpPage(allNodes)
+    ? renderHelpPageVariableCSS(await loadHelpPageVariables())
+    : "";
+
   return {
     html: `${output.html}
 ${templateHtml}
 ${renderInteractionScripts(model)}`,
-    css: [output.css, interactionRuntimeCSS].filter(Boolean).join("\n\n"),
+    css: [
+      output.css,
+      interactionRuntimeCSS,
+      helpPageVariableCSS,
+      renderHelpPageColorCSS(allNodes),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   };
 };
 

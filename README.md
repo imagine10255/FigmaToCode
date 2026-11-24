@@ -108,6 +108,8 @@ Most of your development work will happen in these directories:
 
 You'll rarely need to modify files directly in the `apps/` directory, as they mostly contain build configuration.
 
+> 說明頁匯出與宿主（GameHelper）的職責分工與接口契約，見 [docs/help-page-host-contract.md](docs/help-page-host-contract.md)。改 interaction runtime 或 script.js 拆檔前先看。
+
 #### Commands
 
 `pnpm run ...`

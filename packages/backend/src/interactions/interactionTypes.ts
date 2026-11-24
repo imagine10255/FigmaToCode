@@ -97,6 +97,8 @@ export type InteractionNode = {
   height?: number;
   x?: number;
   y?: number;
+  /** INSTANCE 的主元件 id（variant 頁用它取得 Property 1=a8 這類名稱） */
+  componentId?: string;
 };
 
 export type InteractionModel = {

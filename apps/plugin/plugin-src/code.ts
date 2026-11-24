@@ -249,6 +249,17 @@ const swiperJsUrl =
 
 const deferImmediateScript = (script: string) => {
   const trimmedScript = script.trim();
+  // script.js 只放 runtime 與 figmaHelp 接口，不自動執行：
+  // 獨立 html 由 head 的 inline init 啟動，宿主則自行呼叫 figmaHelp.mount(model)
+  if (
+    /\bfunction\s+initializeFigmaInteractions\s*\(/.test(trimmedScript) &&
+    /\nfunction runFigmaInteractionInit\(\) \{/.test(trimmedScript)
+  ) {
+    return trimmedScript
+      .replace(/\n+function runFigmaInteractionInit\(\) \{[\s\S]*$/, "")
+      .trim();
+  }
+
   if (
     /\bfunction\s+initializeFigmaInteractions\s*\(/.test(trimmedScript) &&
     /initializeFigmaInteractions\(getFigmaInteractionModel\(\)\);\s*$/.test(
@@ -396,7 +407,8 @@ const appendHelpControlCSS = (css?: string) => {
 }`;
 
   const helpControlCSS = `[data-layer="_HELP_NAV_PREV"],
-[data-layer="_HELP_NAV_NEXT"] {
+[data-layer="_HELP_NAV_NEXT"],
+[data-layer="_HELP_PAGE"] {
   z-index: 2;
 }
 
